@@ -1,0 +1,754 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SDL_gpu with Zig: It Begins with a Triangle</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background: #f5f5f5;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            background: white;
+            padding: 40px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            border-radius: 8px;
+        }
+
+        h1 {
+            color: #2c3e50;
+            font-size: 2.5em;
+            margin-bottom: 0.5em;
+            border-bottom: 3px solid #3498db;
+            padding-bottom: 0.3em;
+        }
+
+        h2 {
+            color: #34495e;
+            font-size: 1.8em;
+            margin-top: 1.5em;
+            margin-bottom: 0.8em;
+            padding-top: 0.5em;
+        }
+
+        h3 {
+            color: #546e7a;
+            font-size: 1.4em;
+            margin-top: 1.3em;
+            margin-bottom: 0.6em;
+        }
+
+        p {
+            margin-bottom: 1em;
+            text-align: justify;
+        }
+
+        code {
+            background: #f4f4f4;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 0.9em;
+            color: #c7254e;
+        }
+
+        pre {
+            background: #2d2d2d;
+            color: #f8f8f2;
+            padding: 20px;
+            border-radius: 5px;
+            overflow-x: auto;
+            margin: 1.5em 0;
+            border-left: 4px solid #3498db;
+        }
+
+        pre code {
+            background: none;
+            color: inherit;
+            padding: 0;
+            font-size: 0.95em;
+        }
+
+        .keyword {
+            color: #ff79c6;
+            font-weight: bold;
+        }
+
+        .type {
+            color: #8be9fd;
+        }
+
+        .string {
+            color: #f1fa8c;
+        }
+
+        .comment {
+            color: #6272a4;
+            font-style: italic;
+        }
+
+        .function {
+            color: #50fa7b;
+        }
+
+        .number {
+            color: #bd93f9;
+        }
+
+        ul, ol {
+            margin-left: 2em;
+            margin-bottom: 1em;
+        }
+
+        li {
+            margin-bottom: 0.5em;
+        }
+
+        strong {
+            color: #2c3e50;
+            font-weight: 600;
+        }
+
+        .note {
+            background: #e8f4f8;
+            border-left: 4px solid #3498db;
+            padding: 15px;
+            margin: 1.5em 0;
+            border-radius: 3px;
+        }
+
+        .warning {
+            background: #fff3cd;
+            border-left: 4px solid #ffc107;
+            padding: 15px;
+            margin: 1.5em 0;
+            border-radius: 3px;
+        }
+
+        .step-number {
+            background: #3498db;
+            color: white;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            margin-right: 10px;
+            font-weight: bold;
+        }
+
+        .flow-list {
+            list-style: none;
+            margin-left: 0;
+        }
+
+        .flow-list li {
+            padding-left: 40px;
+            position: relative;
+        }
+
+        a {
+            color: #3498db;
+            text-decoration: none;
+        }
+
+        a:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>SDL_gpu with Zig: It Begins with a Triangle</h1>
+
+        <p>You may think of GPUs as <em>fast</em> black magic, their APIs as spells, and graphics programmers as wizards, and in part you are correct, because a technology too advanced is nothing short of magic. So, in lack of a better introduction, I will try my best to introduce you to this witchcraft—using <strong>Zig</strong> and the <strong>zig-sdl3</strong> bindings.</p>
+
+        <h2>What is SDL_gpu All About?</h2>
+
+        <p>To draw anything on the screen, you need to talk to the GPU, and to talk to the GPU, you need a graphics API. OpenGL is too old, and while it's still enough for many use cases today, it's slowly getting replaced by more <strong>modern</strong> APIs that are faster, have newer features, better designed, better supported or frankly the <strong>only</strong> supported, etc.</p>
+
+        <p>On Linux and Android, you probably want to use <strong>Vulkan</strong>. On Windows, you may want <strong>DirectX12</strong>. On MacOS and iOS, you <em>need</em> to use <strong>Metal</strong>. What about consoles? This gets impractical rather quickly.</p>
+
+        <p>Here is where SDL_gpu shines—it's a "thin layer" above Vulkan / Metal / DirectX12, and more to come in the future. The goal is to write-once-run-everywhere with minimal effort.</p>
+
+        <h2>A Quick Overview</h2>
+
+        <p>It may seem complicated at first. After all, it's not a simple <code>drawTriangle()</code>. However, I promise once you understand why everything is the way it is, it will start to make sense. A million triangles take as much effort as drawing a single one, so please be patient.</p>
+
+        <div class="note">
+            <strong>Note:</strong> This tutorial uses Zig 0.15.2 and zig-sdl3. The concepts translate directly from the original C/C++ SDL_gpu tutorial, but with Zig's safety and clarity.
+        </div>
+
+        <p>The flow will be something like this:</p>
+
+        <ol class="flow-list">
+            <li><span class="step-number">1</span>Create a <strong>Device</strong>, which is requesting access to a compatible GPU.</li>
+            <li><span class="step-number">2</span>Create <strong>Buffers</strong>, which are containers of data on the GPU.</li>
+            <li><span class="step-number">3</span>Create a <strong>Graphics Pipeline</strong> which tells the GPU how to use these buffers.</li>
+            <li><span class="step-number">4</span>Acquire a <strong>Command Buffer</strong> to start issuing tasks to the GPU.</li>
+            <li><span class="step-number">5</span>Fill the buffers with data using <strong>Transfer Buffer</strong> in a <strong>Copy Pass</strong>.</li>
+            <li><span class="step-number">6</span>Acquire the <strong>Swapchain</strong> texture, or simply the window to draw onto.</li>
+            <li><span class="step-number">7</span>Finally, issue the <strong>Draw Call</strong> in a <strong>Render Pass</strong>.</li>
+        </ol>
+
+        <h2>Starting with a Blank Window</h2>
+
+        <p>Let's start with a simple Zig program that creates a window. Unlike the C callbacks system, we'll use Zig's straightforward approach:</p>
+
+        <pre><code><span class="keyword">const</span> std = <span class="keyword">@import</span>(<span class="string">"std"</span>);
+<span class="keyword">const</span> sdl = <span class="keyword">@import</span>(<span class="string">"sdl3"</span>);
+
+<span class="keyword">pub fn</span> <span class="function">main</span>() !<span class="type">void</span> {
+    <span class="comment">// Initialize SDL3 with video subsystem</span>
+    <span class="keyword">try</span> sdl.init(.{ .video = <span class="keyword">true</span> });
+    <span class="keyword">defer</span> sdl.quit(.{ .video = <span class="keyword">true</span> });
+
+    <span class="comment">// Create window</span>
+    <span class="keyword">const</span> window = <span class="keyword">try</span> sdl.video.Window.init(
+        <span class="string">"Hello, Triangle!"</span>,
+        <span class="number">960</span>,
+        <span class="number">540</span>,
+        .{ .resizable = <span class="keyword">true</span> },
+    );
+    <span class="keyword">defer</span> window.deinit();
+
+    std.debug.print(<span class="string">"Window created successfully!\n"</span>, .{});
+
+    <span class="comment">// Main event loop</span>
+    <span class="keyword">var</span> running = <span class="keyword">true</span>;
+    <span class="keyword">while</span> (running) {
+        <span class="keyword">while</span> (sdl.events.poll()) |event| {
+            <span class="keyword">switch</span> (event) {
+                .quit => running = <span class="keyword">false</span>,
+                .key_down => running = <span class="keyword">false</span>,
+                <span class="keyword">else</span> => {},
+            }
+        }
+    }
+}</code></pre>
+
+        <h2>The GPU Device</h2>
+
+        <p>Before you start drawing anything, the first step is to get access to a GPU device or driver. In Zig with zig-sdl3, this looks like:</p>
+
+        <pre><code><span class="comment">// Create a GPU device</span>
+<span class="comment">// IMPORTANT: Use the correct shader format for your platform!</span>
+<span class="keyword">const</span> device = <span class="keyword">try</span> sdl.gpu.Device.init(
+    .{ .msl = <span class="keyword">true</span> },    <span class="comment">// For macOS/iOS (Metal)</span>
+    <span class="comment">// .{ .spirv = true },  // For Linux/Windows (Vulkan)</span>
+    <span class="comment">// .{ .dxil = true },   // For Windows (DirectX 12)</span>
+    <span class="keyword">false</span>,                <span class="comment">// Debug mode</span>
+    <span class="keyword">null</span>,                 <span class="comment">// Let SDL choose the best driver</span>
+);
+<span class="keyword">defer</span> device.deinit();
+
+<span class="comment">// Claim the window for GPU rendering</span>
+<span class="keyword">try</span> device.claimWindow(window);</code></pre>
+
+        <div class="warning">
+            <strong>⚠️ Platform-Specific Shader Formats - CRITICAL!</strong>
+            <ul>
+                <li><strong>macOS/iOS:</strong> Use <code>.msl = true</code> (Metal) - <strong>REQUIRED on Apple platforms!</strong></li>
+                <li><strong>Linux/Windows/Android:</strong> Use <code>.spirv = true</code> (Vulkan)</li>
+                <li><strong>Windows/Xbox:</strong> Use <code>.dxil = true</code> (DirectX 12)</li>
+            </ul>
+            <p><strong>Using the wrong format will cause "SdlError" on device initialization!</strong></p>
+        </div>
+
+        <p>The shader format flags specify what shader formats you plan to use:</p>
+        <ul>
+            <li><code>.spirv</code> - Vulkan's SPIR-V format (compile with <code>glslc</code>)</li>
+            <li><code>.msl</code> - Metal Shading Language (compile with <code>xcrun -sdk macosx metal</code>)</li>
+            <li><code>.dxil</code> - DirectX Intermediate Language (compile with <code>dxc</code>)</li>
+        </ul>
+
+        <div class="note">
+            <strong>Important:</strong> Zig's <code>defer</code> statement ensures proper cleanup when the scope ends. This is safer than manual cleanup and prevents resource leaks.
+        </div>
+
+        <h2>Testing the Waters</h2>
+
+        <p>Let's clear the screen with a color to make sure everything works. This requires understanding a few concepts:</p>
+
+        <h3>Command Buffers</h3>
+
+        <p>A <strong>command buffer</strong> is a container of GPU commands. Instead of sending commands one-by-one (slow), you pack them into a buffer and submit it once:</p>
+
+        <pre><code><span class="comment">// Acquire a command buffer</span>
+<span class="keyword">const</span> cmd = <span class="keyword">try</span> device.acquireCommandBuffer();</code></pre>
+
+        <h3>Color Targets and Swapchain Textures</h3>
+
+        <p>When drawing, you need to tell the GPU <em>where</em> to draw. The window's <strong>swapchain texture</strong> is your target:</p>
+
+        <pre><code><span class="comment">// Get the swapchain texture (returns tuple: ?texture, width, height)</span>
+<span class="keyword">const</span> swapchain_texture_opt, <span class="keyword">const</span> width, <span class="keyword">const</span> height = <span class="keyword">try</span> cmd.waitAndAcquireSwapchainTexture(window);
+<span class="keyword">const</span> swapchain_texture = swapchain_texture_opt <span class="keyword">orelse</span> {
+    <span class="keyword">try</span> cmd.submit();
+    <span class="keyword">continue</span>; <span class="comment">// Window minimized or not ready</span>
+};</code></pre>
+
+        <h3>Render Passes</h3>
+
+        <p>All drawing happens inside a <strong>render pass</strong>. You begin the pass, draw, then end it:</p>
+
+        <pre><code><span class="comment">// Create color target info</span>
+<span class="keyword">const</span> color_target = sdl.gpu.ColorTargetInfo{
+    .texture = swapchain_texture,
+    .clear_color = .{ .r = <span class="number">0.94</span>, .g = <span class="number">0.94</span>, .b = <span class="number">0.94</span>, .a = <span class="number">1.0</span> },
+    .load = .clear,   <span class="comment">// Clear to color</span>
+    .store = .store,  <span class="comment">// Save the result</span>
+};
+
+<span class="comment">// Begin render pass</span>
+<span class="keyword">const</span> render_pass = cmd.beginRenderPass(&.{color_target}, <span class="keyword">null</span>);
+<span class="keyword">defer</span> render_pass.end();
+
+<span class="comment">// Draw commands go here...</span></code></pre>
+
+        <h3>Putting It All Together</h3>
+
+        <p>Here's a complete example that clears the screen:</p>
+
+        <pre><code><span class="keyword">const</span> std = <span class="keyword">@import</span>(<span class="string">"std"</span>);
+<span class="keyword">const</span> sdl = <span class="keyword">@import</span>(<span class="string">"sdl3"</span>);
+
+<span class="keyword">pub fn</span> <span class="function">main</span>() !<span class="type">void</span> {
+    <span class="comment">// Set up allocator for memory management</span>
+    <span class="keyword">var</span> gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    <span class="keyword">defer</span> _ = gpa.deinit();
+    <span class="keyword">const</span> allocator = gpa.allocator();
+
+    <span class="keyword">try</span> sdl.init(.{ .video = <span class="keyword">true</span> });
+    <span class="keyword">defer</span> sdl.quit(.{ .video = <span class="keyword">true</span> });
+
+    <span class="keyword">const</span> window = <span class="keyword">try</span> sdl.video.Window.init(
+        <span class="string">"Hello, Triangle!"</span>,
+        <span class="number">960</span>,
+        <span class="number">540</span>,
+        .{ .resizable = <span class="keyword">true</span> },
+    );
+    <span class="keyword">defer</span> window.deinit();
+
+    <span class="keyword">const</span> device = <span class="keyword">try</span> sdl.gpu.Device.init(
+        .{ .msl = <span class="keyword">true</span> },  <span class="comment">// Use .spirv on Linux/Windows</span>
+        <span class="keyword">false</span>,
+        <span class="keyword">null</span>,
+    );
+    <span class="keyword">defer</span> device.deinit();
+
+    <span class="keyword">try</span> device.claimWindow(window);
+
+    <span class="keyword">var</span> running = <span class="keyword">true</span>;
+    <span class="keyword">while</span> (running) {
+        <span class="keyword">while</span> (sdl.events.poll()) |event| {
+            <span class="keyword">switch</span> (event) {
+                .quit, .key_down => running = <span class="keyword">false</span>,
+                <span class="keyword">else</span> => {},
+            }
+        }
+
+        <span class="comment">// Acquire command buffer</span>
+        <span class="keyword">const</span> cmd = <span class="keyword">try</span> device.acquireCommandBuffer();
+
+        <span class="comment">// Get swapchain texture (returns error union of tuple: ?texture, width, height)</span>
+        <span class="keyword">const</span> swapchain_texture_opt, <span class="keyword">const</span> width, <span class="keyword">const</span> height = <span class="keyword">try</span> cmd.waitAndAcquireSwapchainTexture(window);
+        <span class="keyword">const</span> swapchain_texture = swapchain_texture_opt <span class="keyword">orelse</span> {
+            <span class="keyword">try</span> cmd.submit();
+            <span class="keyword">continue</span>;
+        };
+        _ = width;
+        _ = height;
+
+        <span class="comment">// Create color target</span>
+        <span class="keyword">const</span> color_target = sdl.gpu.ColorTargetInfo{
+            .texture = swapchain_texture,
+            .clear_color = .{ .r = <span class="number">0.94</span>, .g = <span class="number">0.94</span>, .b = <span class="number">0.94</span>, .a = <span class="number">1.0</span> },
+            .load = .clear,
+            .store = .store,
+        };
+
+        <span class="comment">// Render pass</span>
+        {
+            <span class="keyword">const</span> pass = cmd.beginRenderPass(&.{color_target}, <span class="keyword">null</span>);
+            <span class="keyword">defer</span> pass.end();
+
+            <span class="comment">// Drawing will happen here</span>
+        }
+
+        <span class="keyword">try</span> cmd.submit();
+
+        sdl.timer.delayMilliseconds(<span class="number">16</span>); <span class="comment">// ~60 FPS</span>
+    }
+}</code></pre>
+
+        <p>You should now see a light gray window. Congratulations! You've initialized SDL_gpu and created your first render pass.</p>
+
+        <h2>Drawing a Triangle</h2>
+
+        <p>Now for the exciting part—actually drawing geometry. This requires:</p>
+        <ol>
+            <li>Creating GPU buffers with vertex data</li>
+            <li>Writing shaders (vertex and fragment)</li>
+            <li>Creating a graphics pipeline</li>
+            <li>Issuing draw calls</li>
+        </ol>
+
+        <h3>Creating Vertex Buffers</h3>
+
+        <p>First, define your vertex structure:</p>
+
+        <pre><code><span class="comment">// Vertex structure: position (vec3) + color (vec4)</span>
+<span class="keyword">const</span> Vertex = <span class="keyword">struct</span> {
+    x: <span class="type">f32</span>, y: <span class="type">f32</span>, z: <span class="type">f32</span>,     <span class="comment">// Position</span>
+    r: <span class="type">f32</span>, g: <span class="type">f32</span>, b: <span class="type">f32</span>, a: <span class="type">f32</span>, <span class="comment">// Color</span>
+};
+
+<span class="comment">// Triangle vertices in NDC (Normalized Device Coordinates)</span>
+<span class="comment">// (0,0) is center, (1,1) is top-right, (-1,-1) is bottom-left</span>
+<span class="keyword">const</span> vertices = [_]Vertex{
+    .{ .x = <span class="number">0.0</span>,  .y = <span class="number">0.5</span>,  .z = <span class="number">0.0</span>, .r = <span class="number">1.0</span>, .g = <span class="number">0.0</span>, .b = <span class="number">0.0</span>, .a = <span class="number">1.0</span> }, <span class="comment">// Top (red)</span>
+    .{ .x = <span class="number">-0.5</span>, .y = <span class="number">-0.5</span>, .z = <span class="number">0.0</span>, .r = <span class="number">1.0</span>, .g = <span class="number">1.0</span>, .b = <span class="number">0.0</span>, .a = <span class="number">1.0</span> }, <span class="comment">// Bottom-left (yellow)</span>
+    .{ .x = <span class="number">0.5</span>,  .y = <span class="number">-0.5</span>, .z = <span class="number">0.0</span>, .r = <span class="number">1.0</span>, .g = <span class="number">0.0</span>, .b = <span class="number">1.0</span>, .a = <span class="number">1.0</span> }, <span class="comment">// Bottom-right (magenta)</span>
+};</code></pre>
+
+        <p>Create the GPU buffer:</p>
+
+        <pre><code><span class="comment">// Create vertex buffer on GPU</span>
+<span class="keyword">const</span> vertex_buffer = <span class="keyword">try</span> device.createBuffer(.{
+    .usage = .{ .vertex = <span class="keyword">true</span> },
+    .size = <span class="keyword">@sizeOf</span>(<span class="keyword">@TypeOf</span>(vertices)),
+});
+<span class="keyword">defer</span> device.releaseBuffer(vertex_buffer);</code></pre>
+
+        <h3>Uploading Data to GPU</h3>
+
+        <p>To transfer data from CPU to GPU, we use a <strong>transfer buffer</strong> and a <strong>copy pass</strong>:</p>
+
+        <pre><code><span class="comment">// Create transfer buffer</span>
+<span class="keyword">const</span> transfer_buffer = <span class="keyword">try</span> device.createTransferBuffer(.{
+    .usage = .upload,
+    .size = <span class="keyword">@sizeOf</span>(<span class="keyword">@TypeOf</span>(vertices)),
+});
+<span class="keyword">defer</span> device.releaseTransferBuffer(transfer_buffer);
+
+<span class="comment">// Map and fill transfer buffer</span>
+<span class="keyword">const</span> data = <span class="keyword">try</span> device.mapTransferBuffer(transfer_buffer, <span class="keyword">false</span>);
+<span class="keyword">const</span> vertex_data = <span class="keyword">@as</span>([*]Vertex, <span class="keyword">@ptrCast</span>(<span class="keyword">@alignCast</span>(data)));
+<span class="keyword">for</span> (vertices, <span class="number">0</span>..) |v, i| {
+    vertex_data[i] = v;
+}
+device.unmapTransferBuffer(transfer_buffer);
+
+<span class="comment">// Upload to GPU using copy pass</span>
+<span class="keyword">const</span> upload_cmd = <span class="keyword">try</span> device.acquireCommandBuffer();
+{
+    <span class="keyword">const</span> copy_pass = upload_cmd.beginCopyPass();
+    <span class="keyword">defer</span> copy_pass.end();
+
+    copy_pass.uploadToBuffer(
+        .{ .transfer_buffer = transfer_buffer, .offset = <span class="number">0</span> },
+        .{ .buffer = vertex_buffer, .offset = <span class="number">0</span>, .size = <span class="keyword">@sizeOf</span>(<span class="keyword">@TypeOf</span>(vertices)) },
+        <span class="keyword">false</span>,
+    );
+}
+<span class="keyword">try</span> upload_cmd.submit();</code></pre>
+
+        <h3>Writing Shaders</h3>
+
+        <div class="warning">
+            <strong>⚠️ Shader Language Must Match Your Platform!</strong>
+            <p>SDL3 GPU can load shader source code directly on macOS using Metal. For this tutorial, we'll show the <strong>Metal Shading Language</strong> version that works on macOS.</p>
+        </div>
+
+        <p>Create a Metal shader file (<code>src/shaders/shaders.metal</code>):</p>
+
+        <pre><code><span class="comment">#include &lt;metal_stdlib&gt;</span>
+<span class="keyword">using namespace</span> metal;
+
+<span class="keyword">struct</span> <span class="type">VertexIn</span> {
+    float3 position [[<span class="keyword">attribute</span>(<span class="number">0</span>)]];
+    float4 color [[<span class="keyword">attribute</span>(<span class="number">1</span>)]];
+};
+
+<span class="keyword">struct</span> <span class="type">VertexOut</span> {
+    float4 position [[<span class="keyword">position</span>]];
+    float4 color;
+};
+
+<span class="keyword">vertex</span> <span class="type">VertexOut</span> <span class="function">vertex_main</span>(<span class="type">VertexIn</span> in [[<span class="keyword">stage_in</span>]]) {
+    <span class="type">VertexOut</span> out;
+    out.position = float4(in.position, <span class="number">1.0</span>);
+    out.color = in.color;
+    <span class="keyword">return</span> out;
+}
+
+<span class="keyword">fragment</span> float4 <span class="function">fragment_main</span>(<span class="type">VertexOut</span> in [[<span class="keyword">stage_in</span>]]) {
+    <span class="keyword">return</span> in.color;
+}</code></pre>
+
+        <div class="note">
+            <strong>For Linux/Windows (Vulkan):</strong> You would instead write GLSL shaders and compile them to SPIR-V using <code>glslc</code>. The vertex format enum names and API calls remain the same, but you'd use <code>.format = .{ .spirv = true }</code> when creating shaders.
+        </div>
+
+        <p>For reference, here's what the GLSL version looks like (<code>shaders/vertex.glsl</code>):</p>
+
+        <pre><code><span class="comment">#version 460</span>
+
+<span class="keyword">layout</span> (location = <span class="number">0</span>) <span class="keyword">in</span> <span class="type">vec3</span> a_position;
+<span class="keyword">layout</span> (location = <span class="number">1</span>) <span class="keyword">in</span> <span class="type">vec4</span> a_color;
+<span class="keyword">layout</span> (location = <span class="number">0</span>) <span class="keyword">out</span> <span class="type">vec4</span> v_color;
+
+<span class="keyword">void</span> <span class="function">main</span>() {
+    gl_Position = <span class="type">vec4</span>(a_position, <span class="number">1.0</span>);
+    v_color = a_color;
+}</code></pre>
+
+        <p>Create a fragment shader (<code>shaders/fragment.glsl</code>):</p>
+
+        <pre><code><span class="comment">#version 460</span>
+
+<span class="keyword">layout</span> (location = <span class="number">0</span>) <span class="keyword">in</span> <span class="type">vec4</span> v_color;
+<span class="keyword">layout</span> (location = <span class="number">0</span>) <span class="keyword">out</span> <span class="type">vec4</span> FragColor;
+
+<span class="keyword">void</span> <span class="function">main</span>() {
+    FragColor = v_color;
+}</code></pre>
+
+        <p>Compile the shaders (requires Vulkan SDK):</p>
+
+        <pre><code>glslc -fshader-stage=vertex shaders/vertex.glsl -o shaders/vertex.spv
+glslc -fshader-stage=fragment shaders/fragment.glsl -o shaders/fragment.spv</code></pre>
+
+        <h3>Loading Shaders in Zig</h3>
+
+        <div class="note">
+            <strong>Note:</strong> The <code>allocator</code> variable is set up at the beginning of <code>main()</code> using Zig's <code>GeneralPurposeAllocator</code>. This is required for any function that allocates memory, like <code>readFileAlloc()</code>. See the full main function example for the allocator setup.
+        </div>
+
+        <pre><code><span class="comment">// For macOS/Metal - load Metal source code</span>
+<span class="keyword">const</span> metal_source = <span class="keyword">try</span> std.fs.cwd().readFileAlloc(
+    allocator,
+    <span class="string">"src/shaders/shaders.metal"</span>,
+    <span class="number">1024</span> * <span class="number">1024</span>,
+);
+<span class="keyword">defer</span> allocator.free(metal_source);
+
+<span class="comment">// Create shaders from Metal source</span>
+<span class="keyword">const</span> vertex_shader = <span class="keyword">try</span> device.createShader(.{
+    .code = metal_source,
+    .entry_point = <span class="string">"vertex_main"</span>,
+    .format = .{ .msl = <span class="keyword">true</span> },  <span class="comment">// Use .{ .spirv = true } for Vulkan, .{ .dxil = true } for DX12</span>
+    .stage = .vertex,
+    .num_samplers = <span class="number">0</span>,
+    .num_storage_buffers = <span class="number">0</span>,
+    .num_storage_textures = <span class="number">0</span>,
+    .num_uniform_buffers = <span class="number">0</span>,
+});
+<span class="keyword">defer</span> device.releaseShader(vertex_shader);
+
+<span class="keyword">const</span> fragment_shader = <span class="keyword">try</span> device.createShader(.{
+    .code = metal_source,
+    .entry_point = <span class="string">"fragment_main"</span>,
+    .format = .{ .msl = <span class="keyword">true</span> },  <span class="comment">// Must match device shader format!</span>
+    .stage = .fragment,
+    .num_samplers = <span class="number">0</span>,
+    .num_storage_buffers = <span class="number">0</span>,
+    .num_storage_textures = <span class="number">0</span>,
+    .num_uniform_buffers = <span class="number">0</span>,
+});
+<span class="keyword">defer</span> device.releaseShader(fragment_shader);</code></pre>
+
+        <h3>Creating the Graphics Pipeline</h3>
+
+        <pre><code><span class="comment">// Vertex buffer description</span>
+<span class="keyword">const</span> vertex_buffer_desc = sdl.gpu.VertexBufferDescription{
+    .slot = <span class="number">0</span>,
+    .pitch = <span class="keyword">@sizeOf</span>(Vertex),
+    .input_rate = .vertex,
+    .instance_step_rate = <span class="number">0</span>,
+};
+
+<span class="comment">// Vertex attributes</span>
+<span class="keyword">const</span> vertex_attributes = [_]sdl.gpu.VertexAttribute{
+    <span class="comment">// Position at location 0</span>
+    .{
+        .location = <span class="number">0</span>,
+        .buffer_slot = <span class="number">0</span>,
+        .format = .f32x3,
+        .offset = <span class="number">0</span>,
+    },
+    <span class="comment">// Color at location 1</span>
+    .{
+        .location = <span class="number">1</span>,
+        .buffer_slot = <span class="number">0</span>,
+        .format = .f32x4,
+        .offset = <span class="keyword">@offsetOf</span>(Vertex, <span class="string">"r"</span>),
+    },
+};
+
+<span class="comment">// Color target description</span>
+<span class="keyword">const</span> color_target_desc = sdl.gpu.ColorTargetDescription{
+    .format = <span class="keyword">try</span> device.getSwapchainTextureFormat(window),
+    .blend_state = .{
+        .enable_blend = <span class="keyword">true</span>,
+        .color_blend = .add,
+        .alpha_blend = .add,
+        .source_color = .src_alpha,
+        .source_alpha = .src_alpha,
+        .destination_color = .one_minus_src_alpha,
+        .destination_alpha = .one_minus_src_alpha,
+        .enable_color_write_mask = <span class="keyword">true</span>,
+        .color_write_mask = .{ .red = <span class="keyword">true</span>, .green = <span class="keyword">true</span>, .blue = <span class="keyword">true</span>, .alpha = <span class="keyword">true</span> },
+    },
+};
+
+<span class="comment">// Create graphics pipeline</span>
+<span class="keyword">const</span> pipeline = <span class="keyword">try</span> device.createGraphicsPipeline(.{
+    .vertex_shader = vertex_shader,
+    .fragment_shader = fragment_shader,
+    .primitive_type = .triangle_list,
+    .vertex_input_state = .{
+        .vertex_buffer_descriptions = &[_]sdl.gpu.VertexBufferDescription{vertex_buffer_desc},
+        .vertex_attributes = &vertex_attributes,
+    },
+    .target_info = .{
+        .color_target_descriptions = &[_]sdl.gpu.ColorTargetDescription{color_target_desc},
+        .depth_stencil_format = <span class="keyword">null</span>,
+    },
+});
+<span class="keyword">defer</span> device.releaseGraphicsPipeline(pipeline);</code></pre>
+
+        <h3>Drawing the Triangle</h3>
+
+        <p>Finally, inside your render pass:</p>
+
+        <pre><code><span class="comment">// In the main loop, inside the render pass:</span>
+{
+    <span class="keyword">const</span> pass = cmd.beginRenderPass(&.{color_target}, <span class="keyword">null</span>);
+    <span class="keyword">defer</span> pass.end();
+
+    <span class="comment">// Bind pipeline</span>
+    pass.bindGraphicsPipeline(pipeline);
+
+    <span class="comment">// Bind vertex buffer</span>
+    pass.bindVertexBuffers(<span class="number">0</span>, &[_]sdl.gpu.BufferBinding{.{
+        .buffer = vertex_buffer,
+        .offset = <span class="number">0</span>,
+    }});
+
+    <span class="comment">// Draw 3 vertices in 1 instance</span>
+    pass.drawPrimitives(<span class="number">3</span>, <span class="number">1</span>, <span class="number">0</span>, <span class="number">0</span>);
+}</code></pre>
+
+        <p>Congratulations! You should now see a beautiful colored triangle on your screen!</p>
+
+        <h2>Adding Animation with Uniform Buffers</h2>
+
+        <p>Let's make the triangle pulse by passing time data to the shader using <strong>uniform buffers</strong>:</p>
+
+        <pre><code><span class="comment">// Define uniform buffer structure</span>
+<span class="keyword">const</span> UniformBuffer = <span class="keyword">struct</span> {
+    time: <span class="type">f32</span>,
+};
+
+<span class="comment">// Update fragment shader to use uniform (fragment.glsl)</span>
+<span class="comment">/*
+#version 460
+
+layout (location = 0) in vec4 v_color;
+layout (location = 0) out vec4 FragColor;
+
+layout(std140, set = 3, binding = 0) uniform UniformBlock {
+    float time;
+};
+
+void main() {
+    float pulse = sin(time * 2.0) * 0.5 + 0.5;
+    FragColor = vec4(v_color.rgb * (0.8 + pulse * 0.5), v_color.a);
+}
+*/
+
+<span class="comment">// In your render loop, before drawing:</span>
+<span class="keyword">const</span> time_uniform = UniformBuffer{
+    .time = <span class="keyword">@as</span>(<span class="type">f32</span>, <span class="keyword">@floatCast</span>(sdl.timer.getTicksNS() / <span class="number">1_000_000_000.0</span>)),
+};
+
+cmd.pushFragmentUniformData(<span class="number">0</span>, &time_uniform, <span class="keyword">@sizeOf</span>(UniformBuffer));</code></pre>
+
+        <div class="note">
+            <strong>Remember:</strong> You need to update the fragment shader's <code>num_uniform_buffers</code> to <code>1</code> when creating it, and recompile the shader after adding the uniform block.
+        </div>
+
+        <h2>Building Your Project</h2>
+
+        <p>To build and run your Zig SDL_gpu project:</p>
+
+        <pre><code><span class="comment"># Build the project</span>
+zig build
+
+<span class="comment"># Run the application</span>
+zig build run</code></pre>
+
+        <h2>Next Steps</h2>
+
+        <ul>
+            <li>Explore textures and samplers</li>
+            <li>Add 3D transformations with matrices</li>
+            <li>Implement depth testing for 3D scenes</li>
+            <li>Learn about compute shaders</li>
+            <li>Study the <a href="https://github.com/TheSpydog/SDL_gpu_examples">SDL_gpu examples</a></li>
+            <li>Read the <a href="https://wiki.libsdl.org/SDL3/">SDL3 documentation</a></li>
+        </ul>
+
+        <h2>Resources</h2>
+
+        <ul>
+            <li><a href="https://ziglang.org/documentation/master/">Zig Documentation</a></li>
+            <li><a href="https://github.com/libsdl-org/SDL">SDL3 on GitHub</a></li>
+            <li><a href="https://wiki.libsdl.org/SDL3/CategoryGPU">SDL_gpu API Reference</a></li>
+            <li><a href="https://learnopengl.com/">LearnOpenGL</a> (concepts translate to SDL_gpu)</li>
+            <li><a href="https://vulkan-tutorial.com/">Vulkan Tutorial</a> (for deeper understanding)</li>
+        </ul>
+
+        <div class="note">
+            <strong>Note on Platforms:</strong> SDL_gpu currently supports Vulkan (Linux/Android/Windows), Metal (macOS/iOS), and DirectX 12 (Windows/Xbox). WebGPU support is planned for web deployment.
+        </div>
+
+        <h2>Conclusion</h2>
+
+        <p>You've successfully created your first GPU-accelerated graphics program using Zig and SDL_gpu! While there was significant setup, you now understand the fundamental concepts of modern graphics programming:</p>
+
+        <ul>
+            <li>GPU device initialization</li>
+            <li>Buffer management and data transfer</li>
+            <li>Shader compilation and pipeline creation</li>
+            <li>Command buffers and render passes</li>
+            <li>Draw calls and uniform buffers</li>
+        </ul>
+
+        <p>The journey from here involves building on these fundamentals. Every complex 3D scene, game, or visualization tool uses these same building blocks. With Zig's safety features and SDL_gpu's cross-platform abstraction, you have a solid foundation for creating high-performance graphics applications.</p>
+
+        <p><strong>Happy coding, and may your triangles always render beautifully!</strong></p>
+
+        <footer style="margin-top: 3em; padding-top: 2em; border-top: 1px solid #ddd; color: #666; text-align: center;">
+            <p>Adapted from the original SDL_gpu C/C++ tutorial for Zig developers</p>
+            <p>SDL_gpu © SDL Team | Zig © Zig Software Foundation</p>
+        </footer>
+    </div>
+</body>
+</html>
