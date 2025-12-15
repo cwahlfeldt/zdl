@@ -1,299 +1,294 @@
-# 3D Game Engine Implementation Plan
+# SDL3 Game Engine - Incremental Implementation Plan
 
 ## Overview
 
-Build a 3D game engine in Zig using SDL3's GPU API. The current codebase already has GPU rendering infrastructure with vertex buffers, graphics pipelines, and cross-platform shaders (SPIR-V + Metal).
+Build a game engine in Zig using SDL3's GPU API. Start with a 2D platformer, then incrementally add 3D capabilities. Each phase produces a testable result.
 
 ## Current State
 
-- **Existing**: GPU device init, vertex/transfer buffers, graphics pipeline, command buffer rendering, colored triangle
-- **Shader support**: SPIR-V (Linux/Windows), Metal (macOS)
-- **Foundation**: Vertex struct with x,y,z position but no 3D transforms yet
+- GPU device initialization, vertex/transfer buffers
+- Graphics pipeline with colored triangle
+- Cross-platform shaders (SPIR-V + Metal)
+- No transforms, uniforms, depth, or textures yet
 
 ---
 
-## Phase 1: Core 3D Foundation
+## Phase 0: Foundation (Testable: Animated Triangle)
 
-### 1.1 Math Library (`src/math/`)
+### 0.1 Build System - Shader Compilation
+- Add glslangValidator step to build.zig
+- Auto-compile .vert/.frag to .spv on build
+- Files: `build.zig`
 
-| File                | Purpose                                     |
-| ------------------- | ------------------------------------------- |
-| `src/math/vec2.zig` | 2D vectors (UVs, screen coords)             |
-| `src/math/vec3.zig` | 3D vectors (position, direction, scale)     |
-| `src/math/vec4.zig` | Homogeneous coordinates                     |
-| `src/math/mat4.zig` | 4x4 matrices (transforms, projection, view) |
-| `src/math/quat.zig` | Quaternion rotations                        |
-| `src/math/math.zig` | Root module re-exporting all                |
+### 0.2 Math Library
+| File | Purpose |
+|------|---------|
+| `src/math/vec2.zig` | 2D vectors (positions, UVs) |
+| `src/math/vec3.zig` | 3D vectors (positions, colors) |
+| `src/math/vec4.zig` | Homogeneous coordinates |
+| `src/math/mat4.zig` | 4x4 transforms (ortho, perspective, translate, rotate, scale) |
+| `src/math/math.zig` | Re-export module |
 
-**Key functions in mat4.zig:**
+### 0.3 Uniform Buffer Support
+- Create `src/gpu/uniforms.zig` with basic MVP struct
+- Update vertex shader with uniform block
+- Update pipeline creation (`num_uniform_buffers = 1`)
+- Files: `src/gpu/uniforms.zig`, `src/shaders/vertex.vert`, `src/shaders/shaders.metal`, `src/main.zig`
 
-- `perspective(fov, aspect, near, far)` - Perspective projection
-- `lookAt(eye, target, up)` - View matrix
-- `translation/scale/rotation` - Transform factories
-- `mul(Mat4)` - Matrix multiplication
-- `toColumnMajor() -> [16]f32` - For GPU upload
+### 0.4 Frame Timing
+- Create `src/core/time.zig` with delta time calculation
+- Replace hardcoded 16ms delay with proper timing
+- Files: `src/core/time.zig`, `src/main.zig`
 
-### 1.2 Uniform Buffers (`src/gpu/uniforms.zig`)
-
-```zig
-pub const MVPUniforms = extern struct {
-    model: [16]f32,
-    view: [16]f32,
-    projection: [16]f32,
-};
-```
-
-**Shader updates required:**
-
-- Add uniform block to vertex shader (set = 1, binding = 0)
-- Update pipeline `num_uniform_buffers = 1`
-
-### 1.3 Depth Buffer
-
-Modify `main.zig`:
-
-- Create depth texture with `.d32_float` format
-- Set `depth_stencil_state` on pipeline (enable test + write, compare = less)
-- Pass depth target to `beginRenderPass`
-
-### 1.4 Camera System (`src/camera.zig`)
-
-- Position, rotation (quaternion), FOV, aspect, near/far
-- `getViewMatrix()` / `getProjectionMatrix()`
-- Cached matrices with dirty flags
-
-### 1.5 Transform (`src/transform.zig`)
-
-- Position, rotation, scale
-- `getMatrix()` returning TRS model matrix
+**Test**: Triangle that rotates smoothly using uniform-based transform and delta time
 
 ---
 
-## Phase 2: Resource Management
+## Phase 1: 2D Core (Testable: Moving Player)
 
-### 2.1 Texture Loading (`src/resources/texture.zig`)
+### 1.1 Input System
+- Create `src/input/input.zig`
+- Track key states (pressed, just_pressed, released)
+- Arrow keys / WASD support
+- Files: `src/input/input.zig`, `src/main.zig`
 
-- Load images (stb_image or SDL_image)
-- Create GPU texture, upload via transfer buffer
-- Support for common formats (RGBA8)
+### 1.2 2D Camera
+- Create `src/camera.zig` with orthographic projection
+- Screen-space to world-space conversion
+- Camera position for scrolling
+- Files: `src/camera.zig`
 
-### 2.2 Sampler (`src/resources/sampler.zig`)
+### 1.3 Sprite Renderer
+- Create `src/renderer/sprite.zig`
+- Quad generation from position/size
+- Batch multiple quads into single vertex buffer
+- Color tinting support
+- Files: `src/renderer/sprite.zig`
 
-- Filtering (linear/nearest), address modes
-- Common presets (linear-clamp, nearest-repeat)
+### 1.4 Basic Game Loop
+- Separate update() and render() functions
+- Player entity with position/velocity
+- Simple AABB collision detection
+- Files: `src/main.zig` or `src/game.zig`
 
-### 2.3 Mesh System (`src/resources/mesh.zig`)
+**Test**: Colored rectangle controlled with arrow keys, collides with static platform rectangles
 
-```zig
-pub const Vertex3D = extern struct {
-    position: [3]f32,
-    normal: [3]f32,
-    uv: [2]f32,
-    color: [4]f32,
-};
-```
+---
 
-- Vertex + index buffers
-- Bounding box for culling
+## Phase 2: 2D Platformer (Testable: Jumping on Platforms)
 
-### 2.4 OBJ Loader (`src/resources/obj_loader.zig`)
+### 2.1 Physics
+- Gravity constant
+- Jumping with ground check
+- Velocity-based movement
+- Files: `src/physics/physics.zig` or inline in game
 
+### 2.2 Texture Loading
+- Create `src/resources/texture.zig`
+- Load PNG/image files (stb_image or SDL_image)
+- Upload to GPU texture via transfer buffer
+- Files: `src/resources/texture.zig`
+
+### 2.3 Textured Sprites
+- Update shaders for texture sampling
+- Add UV coordinates to vertex format
+- Create sampler with filtering options
+- Files: `src/shaders/*.vert`, `src/shaders/*.frag`, `src/shaders/shaders.metal`, `src/renderer/sprite.zig`
+
+### 2.4 Sprite Animation
+- Animation data struct (frames, duration)
+- Frame advancement based on time
+- UV region selection from spritesheet
+- Files: `src/renderer/animation.zig`
+
+### 2.5 Tilemap
+- Create `src/renderer/tilemap.zig`
+- Load tile data from simple format (CSV or custom)
+- Render tiles as batched quads
+- Collision from tile data
+- Files: `src/renderer/tilemap.zig`
+
+**Test**: Textured animated player jumping on tilemap platforms
+
+---
+
+## Phase 3: 2D Polish (Testable: Complete 2D Level)
+
+### 3.1 Audio
+- Create `src/audio/audio.zig`
+- SDL3 audio stream setup
+- Load WAV files
+- Play sound effects (jump, land, collect)
+- Background music loop
+- Files: `src/audio/audio.zig`
+
+### 3.2 Particles (Optional)
+- Simple particle emitter
+- Position, velocity, lifetime, color fade
+- Used for dust, sparkles
+- Files: `src/renderer/particles.zig`
+
+### 3.3 UI/HUD
+- Score display
+- Simple bitmap font or number sprites
+- Files: `src/ui/ui.zig`
+
+**Test**: Playable 2D platformer level with sound, score, and polish effects
+
+---
+
+## Phase 4: 3D Foundation (Testable: 3D Cube)
+
+### 4.1 Depth Buffer
+- Create depth texture (D32_FLOAT format)
+- Enable depth test/write on pipeline
+- Pass depth target to render pass
+- Files: `src/main.zig`
+
+### 4.2 3D Camera
+- Update `src/camera.zig` for perspective projection
+- lookAt() view matrix
+- Mouse look / keyboard movement
+- Files: `src/camera.zig`
+
+### 4.3 3D Transform
+- Create `src/transform.zig`
+- Position, rotation (quaternion), scale
+- Model matrix generation (TRS)
+- Files: `src/transform.zig`, `src/math/quat.zig`
+
+### 4.4 3D Primitives
+- Cube mesh generation (24 vertices for proper normals)
+- Plane mesh
+- Create `src/resources/mesh.zig` with Vertex3D struct
+- Files: `src/resources/mesh.zig`, `src/resources/primitives.zig`
+
+**Test**: Textured 3D cube with WASD+mouse camera controls
+
+---
+
+## Phase 5: 3D Resources (Testable: Loaded Model)
+
+### 5.1 OBJ Loader
+- Create `src/resources/obj_loader.zig`
 - Parse positions, normals, UVs, faces
-- Triangulate and deduplicate vertices
+- Triangulate and build vertex buffer
+- Files: `src/resources/obj_loader.zig`
 
-### 2.5 Material System (`src/resources/material.zig`)
+### 5.2 Material System
+- Create `src/resources/material.zig`
+- Texture references (diffuse, normal)
+- Material properties (color, shininess)
+- Files: `src/resources/material.zig`
 
-- Texture references (albedo, normal, etc.)
-- Fallback colors
-- Pipeline/sampler binding
+### 5.3 Asset Cache
+- Create `src/resources/asset_cache.zig`
+- Path-based lookup for textures, meshes
+- Automatic loading on first access
+- Files: `src/resources/asset_cache.zig`
 
-### 2.6 Asset Cache (`src/resources/asset_cache.zig`)
-
-- Generic cache for textures, meshes
-- Path-based lookup, automatic loading
+**Test**: Load and render OBJ model with texture
 
 ---
 
-## Phase 3: Rendering System
+## Phase 6: Lighting (Testable: Lit Scene)
 
-### 3.1 Lighting (`src/renderer/lighting.zig`)
+### 6.1 Lighting System
+- Create `src/renderer/lighting.zig`
+- DirectionalLight, PointLight structs
+- Light uniform buffer (max 8-16 lights)
+- Files: `src/renderer/lighting.zig`
 
-**Types:**
+### 6.2 Lit Shaders
+- Blinn-Phong fragment shader
+- Normal attribute in vertex format
+- Ambient + diffuse + specular
+- Files: `src/shaders/lit.vert`, `src/shaders/lit.frag`, `src/shaders/shaders.metal`
 
-- `DirectionalLight` (sun)
-- `PointLight` (position, radius, falloff)
-- `SpotLight` (position, direction, angles)
-
-**Uniform struct** for shader with max 16 point lights.
-
-### 3.2 Normal Mapping
-
+### 6.3 Normal Mapping
 - Add tangent to Vertex3D
-- Calculate TBN matrix in vertex shader
-- Sample normal map in fragment shader
+- TBN matrix calculation
+- Normal map sampling
+- Files: shader updates, mesh generation
 
-### 3.3 Skybox (`src/renderer/skybox.zig`)
-
-- Cubemap texture loading
-- Inside-out cube mesh
-- Render at far plane, no depth write
-
-### 3.4 Frustum Culling (`src/renderer/culling.zig`)
-
-- Extract 6 planes from view-projection matrix
-- AABB and sphere intersection tests
+**Test**: Scene with directional sun + point lights, normal-mapped surfaces
 
 ---
 
-## Phase 4: Scene Management
+## Phase 7: Scene System (Testable: Multi-Object Scene)
 
-### 4.1 Entity System (`src/scene/entity.zig`)
+### 7.1 Entity System
+- Create `src/scene/entity.zig`
+- Entity ID, optional components
+- Component: Transform, MeshRenderer, Light, Camera
+- Files: `src/scene/entity.zig`
 
-- Entity ID, name, active flag
-- Parent/children for hierarchy
-- Optional component pointers (transform, mesh_renderer, light, camera)
+### 7.2 Scene Graph
+- Create `src/scene/scene.zig`
+- Entity storage and lookup
+- Parent/child hierarchy
+- World transform calculation
+- Files: `src/scene/scene.zig`
 
-### 4.2 Scene Graph (`src/scene/scene.zig`)
+### 7.3 Frustum Culling
+- Create `src/renderer/culling.zig`
+- Extract frustum planes from VP matrix
+- AABB intersection test
+- Files: `src/renderer/culling.zig`
 
-- Entity storage (hash map)
-- Component arrays (transforms, renderers, lights)
-- `getWorldTransform()` - recursive parent traversal
-- `collectRenderables()` - gather visible meshes with frustum culling
+### 7.4 Instanced Rendering
+- Instance buffer with per-instance transforms
+- Single draw call for same mesh+material
+- Files: `src/renderer/instancing.zig`
 
-### 4.3 Instanced Rendering (`src/renderer/instancing.zig`)
-
-- Instance buffer with per-instance model matrices
-- Batching same mesh+material
-- Single draw call for many objects
-
----
-
-## Phase 5: Engine Features
-
-### 5.1 Input System (`src/input/input.zig`)
-
-- Key states (pressed, just_pressed, just_released)
-- Mouse position, delta, buttons, scroll
-- `getAxis()` helper for movement
-
-### 5.2 Audio System (`src/audio/audio.zig`)
-
-- SDL3 audio streams
-- AudioClip (loaded WAV data)
-- AudioSource (play, stop, volume, looping)
-- 3D positional audio with distance attenuation
-
-### 5.3 Frame Timing (`src/core/time.zig`)
-
-- Delta time (scaled and unscaled)
-- FPS counter
-- Rolling average frame time
-- Profiler with scoped timers
-
-### 5.4 Engine Core (`src/engine.zig`)
-
-Orchestrates all systems:
-
-- Window, GPU device
-- Input, audio, time
-- Asset caches
-- Renderer
-- Scene
-- Main loop with update/render callbacks
+**Test**: Scene with 100+ objects, hierarchy transforms, frustum culling
 
 ---
 
-## Implementation Order
-
-### Milestone 1: Basic 3D Rendering
-
-1. `src/math/vec3.zig`
-2. `src/math/vec4.zig`
-3. `src/math/mat4.zig`
-4. `src/math/quat.zig`
-5. `src/math/vec2.zig`
-6. `src/math/math.zig`
-7. `src/gpu/uniforms.zig`
-8. Update `src/shaders/vertex.vert` for uniforms
-9. Modify `main.zig` for depth buffer
-10. `src/camera.zig`
-11. `src/transform.zig`
-12. **Test**: Rotating 3D cube with perspective
-
-### Milestone 2: Textured Models
-
-13. `src/resources/texture.zig`
-14. `src/resources/sampler.zig`
-15. Update shaders for texture sampling
-16. `src/resources/mesh.zig`
-17. `src/resources/obj_loader.zig`
-18. `src/resources/material.zig`
-19. `src/resources/asset_cache.zig`
-20. **Test**: Load and render OBJ model with texture
-
-### Milestone 3: Lighting
-
-21. `src/renderer/lighting.zig`
-22. Update fragment shader for Blinn-Phong
-23. Add normal mapping to shaders
-24. `src/renderer/skybox.zig`
-25. `src/renderer/culling.zig`
-26. **Test**: Lit scene with skybox
-
-### Milestone 4: Scene System
-
-27. `src/scene/entity.zig`
-28. `src/scene/scene.zig`
-29. `src/renderer/instancing.zig`
-30. **Test**: Multiple entities with hierarchy
-
-### Milestone 5: Full Engine
-
-31. `src/input/input.zig`
-32. `src/core/time.zig`
-33. `src/audio/audio.zig`
-34. `src/engine.zig`
-35. Refactor `main.zig` to use Engine
-36. **Test**: Complete demo with camera controls
-
----
-
-## Final Directory Structure
+## Directory Structure (Final)
 
 ```
 src/
   main.zig
-  engine.zig
+  game.zig              # Game-specific logic
   math/
     math.zig, vec2.zig, vec3.zig, vec4.zig, mat4.zig, quat.zig
-  gpu/
-    gpu.zig, uniforms.zig
-  resources/
-    resources.zig, texture.zig, sampler.zig, mesh.zig,
-    obj_loader.zig, material.zig, asset_cache.zig
-  renderer/
-    renderer.zig, lighting.zig, skybox.zig, culling.zig, instancing.zig
-  scene/
-    scene.zig, entity.zig
+  core/
+    time.zig
   input/
     input.zig
   audio/
     audio.zig
-  core/
-    time.zig
+  gpu/
+    uniforms.zig
+  camera.zig
+  transform.zig
+  resources/
+    texture.zig, mesh.zig, obj_loader.zig
+    material.zig, asset_cache.zig, primitives.zig
+  renderer/
+    sprite.zig, tilemap.zig, animation.zig
+    particles.zig, lighting.zig, culling.zig, instancing.zig
+  scene/
+    entity.zig, scene.zig
+  ui/
+    ui.zig
   shaders/
-    vertex.vert, fragment.frag, skybox.vert, skybox.frag,
+    vertex.vert, fragment.frag, lit.vert, lit.frag
     shaders.metal, *.spv
 ```
 
 ---
 
-## Critical Files to Modify
+## Implementation Order Summary
 
-| File                        | Changes                                          |
-| --------------------------- | ------------------------------------------------ |
-| `src/main.zig`              | Depth buffer, uniforms integration, engine usage |
-| `src/shaders/vertex.vert`   | MVP uniform block                                |
-| `src/shaders/fragment.frag` | Texture sampling, lighting                       |
-| `src/shaders/shaders.metal` | Metal equivalents                                |
-| `build.zig`                 | New modules, optional shader compilation         |
+| Phase | Deliverable | Key Systems |
+|-------|-------------|-------------|
+| 0 | Animated triangle | Math, uniforms, timing |
+| 1 | Moving player | Input, 2D camera, sprites |
+| 2 | Platformer gameplay | Textures, animation, tilemap, physics |
+| 3 | Polished 2D game | Audio, particles, UI |
+| 4 | 3D cube | Depth, perspective, 3D camera |
+| 5 | Loaded 3D model | OBJ loader, materials, asset cache |
+| 6 | Lit 3D scene | Lighting, normal mapping |
+| 7 | Full 3D engine | Entities, scene graph, culling, instancing |
