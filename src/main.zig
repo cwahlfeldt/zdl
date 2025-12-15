@@ -1,5 +1,22 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const sdl = @import("sdl3");
+
+// Platform-specific shader configuration
+const is_macos = builtin.os.tag == .macos;
+const ShaderConfig = if (is_macos) struct {
+    const format = sdl.gpu.ShaderFormatFlags{ .msl = true };
+    const vertex_path = "src/shaders/shaders.metal";
+    const fragment_path = "src/shaders/shaders.metal";
+    const vertex_entry = "vertex_main";
+    const fragment_entry = "fragment_main";
+} else struct {
+    const format = sdl.gpu.ShaderFormatFlags{ .spirv = true };
+    const vertex_path = "src/shaders/vertex.spv";
+    const fragment_path = "src/shaders/fragment.spv";
+    const vertex_entry = "main";
+    const fragment_entry = "main";
+};
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -18,7 +35,7 @@ pub fn main() !void {
     defer window.deinit();
 
     const device = try sdl.gpu.Device.init(
-        .{ .msl = true }, // Metal on macOS (use .spirv on Linux/Windows)
+        ShaderConfig.format,
         false,
         null,
     );
@@ -52,18 +69,29 @@ pub fn main() !void {
     });
     defer device.releaseBuffer(vertex_buffer);
 
-    const metal_source = try std.fs.cwd().readFileAlloc(
+    // Load shader code (text for Metal, binary for SPIR-V)
+    const vertex_code = try std.fs.cwd().readFileAlloc(
         allocator,
-        "src/shaders/shaders.metal",
+        ShaderConfig.vertex_path,
         1024 * 1024,
     );
-    defer allocator.free(metal_source);
+    defer allocator.free(vertex_code);
 
-    // Create shaders from Metal source
+    const fragment_code = if (is_macos)
+        vertex_code // Metal uses same file for both shaders
+    else
+        try std.fs.cwd().readFileAlloc(
+            allocator,
+            ShaderConfig.fragment_path,
+            1024 * 1024,
+        );
+    defer if (!is_macos) allocator.free(fragment_code);
+
+    // Create shaders
     const vertex_shader = try device.createShader(.{
-        .code = metal_source,
-        .entry_point = "vertex_main",
-        .format = .{ .msl = true },
+        .code = vertex_code,
+        .entry_point = ShaderConfig.vertex_entry,
+        .format = ShaderConfig.format,
         .stage = .vertex,
         .num_samplers = 0,
         .num_storage_buffers = 0,
@@ -73,9 +101,9 @@ pub fn main() !void {
     defer device.releaseShader(vertex_shader);
 
     const fragment_shader = try device.createShader(.{
-        .code = metal_source,
-        .entry_point = "fragment_main",
-        .format = .{ .msl = true },
+        .code = fragment_code,
+        .entry_point = ShaderConfig.fragment_entry,
+        .format = ShaderConfig.format,
         .stage = .fragment,
         .num_samplers = 0,
         .num_storage_buffers = 0,
