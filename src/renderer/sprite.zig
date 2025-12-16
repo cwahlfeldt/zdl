@@ -2,7 +2,7 @@ const std = @import("std");
 const math = @import("../math/math.zig");
 const Vec2 = math.Vec2;
 
-/// Vertex format for sprite rendering (position + color)
+/// Vertex format for sprite rendering (position + color + UV)
 pub const SpriteVertex = struct {
     x: f32,
     y: f32,
@@ -11,6 +11,8 @@ pub const SpriteVertex = struct {
     g: f32,
     b: f32,
     a: f32, // Color
+    u: f32,
+    v: f32, // Texture coordinates
 };
 
 /// Color helper
@@ -68,9 +70,28 @@ pub const SpriteBatch = struct {
         self.vertices.clearRetainingCapacity();
     }
 
-    /// Add a colored quad to the batch
+    /// Add a colored quad to the batch (without texture)
     /// Position is the center of the quad
     pub fn addQuad(self: *SpriteBatch, x: f32, y: f32, width: f32, height: f32, color: Color) !void {
+        // Use full UV range (0,0 to 1,1) for colored quads
+        try self.addQuadUV(x, y, width, height, color, 0, 0, 1, 1);
+    }
+
+    /// Add a textured quad to the batch with UV coordinates
+    /// Position is the center of the quad
+    /// UV coordinates: uv_left,uv_top = top-left, uv_right,uv_bottom = bottom-right
+    pub fn addQuadUV(
+        self: *SpriteBatch,
+        x: f32,
+        y: f32,
+        width: f32,
+        height: f32,
+        color: Color,
+        uv_left: f32,
+        uv_top: f32,
+        uv_right: f32,
+        uv_bottom: f32,
+    ) !void {
         const half_w = width / 2.0;
         const half_h = height / 2.0;
 
@@ -80,13 +101,13 @@ pub const SpriteBatch = struct {
         // Triangle 1: top-left, bottom-left, bottom-right
         // Triangle 2: top-left, bottom-right, top-right
 
-        try self.vertices.append(self.allocator, .{ .x = x - half_w, .y = y - half_h, .z = z, .r = color.r, .g = color.g, .b = color.b, .a = color.a }); // top-left
-        try self.vertices.append(self.allocator, .{ .x = x - half_w, .y = y + half_h, .z = z, .r = color.r, .g = color.g, .b = color.b, .a = color.a }); // bottom-left
-        try self.vertices.append(self.allocator, .{ .x = x + half_w, .y = y + half_h, .z = z, .r = color.r, .g = color.g, .b = color.b, .a = color.a }); // bottom-right
+        try self.vertices.append(self.allocator, .{ .x = x - half_w, .y = y - half_h, .z = z, .r = color.r, .g = color.g, .b = color.b, .a = color.a, .u = uv_left, .v = uv_top }); // top-left
+        try self.vertices.append(self.allocator, .{ .x = x - half_w, .y = y + half_h, .z = z, .r = color.r, .g = color.g, .b = color.b, .a = color.a, .u = uv_left, .v = uv_bottom }); // bottom-left
+        try self.vertices.append(self.allocator, .{ .x = x + half_w, .y = y + half_h, .z = z, .r = color.r, .g = color.g, .b = color.b, .a = color.a, .u = uv_right, .v = uv_bottom }); // bottom-right
 
-        try self.vertices.append(self.allocator, .{ .x = x - half_w, .y = y - half_h, .z = z, .r = color.r, .g = color.g, .b = color.b, .a = color.a }); // top-left
-        try self.vertices.append(self.allocator, .{ .x = x + half_w, .y = y + half_h, .z = z, .r = color.r, .g = color.g, .b = color.b, .a = color.a }); // bottom-right
-        try self.vertices.append(self.allocator, .{ .x = x + half_w, .y = y - half_h, .z = z, .r = color.r, .g = color.g, .b = color.b, .a = color.a }); // top-right
+        try self.vertices.append(self.allocator, .{ .x = x - half_w, .y = y - half_h, .z = z, .r = color.r, .g = color.g, .b = color.b, .a = color.a, .u = uv_left, .v = uv_top }); // top-left
+        try self.vertices.append(self.allocator, .{ .x = x + half_w, .y = y + half_h, .z = z, .r = color.r, .g = color.g, .b = color.b, .a = color.a, .u = uv_right, .v = uv_bottom }); // bottom-right
+        try self.vertices.append(self.allocator, .{ .x = x + half_w, .y = y - half_h, .z = z, .r = color.r, .g = color.g, .b = color.b, .a = color.a, .u = uv_right, .v = uv_top }); // top-right
     }
 
     /// Get the vertex data for rendering

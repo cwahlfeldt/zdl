@@ -85,8 +85,8 @@ pub const Input = struct {
         var x: f32 = 0.0;
         var y: f32 = 0.0;
 
-        if (self.isKeyDown(.w)) y += 1.0;
-        if (self.isKeyDown(.s)) y -= 1.0;
+        if (self.isKeyDown(.w)) y -= 1.0;
+        if (self.isKeyDown(.s)) y += 1.0;
         if (self.isKeyDown(.a)) x -= 1.0;
         if (self.isKeyDown(.d)) x += 1.0;
 
@@ -98,8 +98,8 @@ pub const Input = struct {
         var x: f32 = 0.0;
         var y: f32 = 0.0;
 
-        if (self.isKeyDown(.up)) y += 1.0;
-        if (self.isKeyDown(.down)) y -= 1.0;
+        if (self.isKeyDown(.up)) y -= 1.0;
+        if (self.isKeyDown(.down)) y += 1.0;
         if (self.isKeyDown(.left)) x -= 1.0;
         if (self.isKeyDown(.right)) x += 1.0;
 
