@@ -62,14 +62,36 @@ pub fn build(b: *std.Build) void {
     collector.root_module.addImport("engine", engine_module);
     b.installArtifact(collector);
 
-    // Default run step (collector - best demo of Phase 3 features)
+    // Build Cube3D example (Phase 4 demo)
+    const cube3d = b.addExecutable(.{
+        .name = "cube3d",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("examples/cube3d/main.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    cube3d.root_module.addImport("sdl3", sdl3.module("sdl3"));
+    cube3d.root_module.addImport("engine", engine_module);
+    b.installArtifact(cube3d);
+
+    // Default run step (cube3d - best demo of Phase 4 features)
+    const run_cube3d = b.addRunArtifact(cube3d);
+    run_cube3d.step.dependOn(b.getInstallStep());
+    if (b.args) |args| {
+        run_cube3d.addArgs(args);
+    }
+    const run_step = b.step("run", "Run Cube3D example (Phase 4 demo)");
+    run_step.dependOn(&run_cube3d.step);
+
+    // Run collector
     const run_collector = b.addRunArtifact(collector);
     run_collector.step.dependOn(b.getInstallStep());
     if (b.args) |args| {
         run_collector.addArgs(args);
     }
-    const run_step = b.step("run", "Run Collector example (Phase 3 demo)");
-    run_step.dependOn(&run_collector.step);
+    const run_collector_step = b.step("run-collector", "Run Collector example (Phase 3 demo)");
+    run_collector_step.dependOn(&run_collector.step);
 
     // Run pong
     const run_pong = b.addRunArtifact(pong);
@@ -98,6 +120,8 @@ fn compileShaders(b: *std.Build) !void {
     const shaders = [_]struct { src: []const u8, stage: []const u8 }{
         .{ .src = "vertex.vert", .stage = "vert" },
         .{ .src = "fragment.frag", .stage = "frag" },
+        .{ .src = "vertex_3d.vert", .stage = "vert" },
+        .{ .src = "fragment_3d.frag", .stage = "frag" },
     };
 
     for (shaders) |shader| {

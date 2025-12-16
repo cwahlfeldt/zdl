@@ -7,6 +7,7 @@ pub const Context = Application.Context;
 // Subsystems
 pub const Input = @import("input/input.zig").Input;
 pub const Camera2D = @import("camera.zig").Camera2D;
+pub const Camera3D = @import("camera.zig").Camera3D;
 pub const sprite = @import("renderer/sprite.zig");
 pub const SpriteBatch = sprite.SpriteBatch;
 pub const Color = sprite.Color;
@@ -30,6 +31,13 @@ pub const Vec2 = math.Vec2;
 pub const Vec3 = math.Vec3;
 pub const Vec4 = math.Vec4;
 pub const Mat4 = math.Mat4;
+pub const Quat = math.Quat;
+
+// 3D Support
+pub const Transform = @import("transform.zig").Transform;
+pub const Mesh = @import("resources/mesh.zig").Mesh;
+pub const Vertex3D = @import("resources/mesh.zig").Vertex3D;
+pub const primitives = @import("resources/primitives.zig");
 
 // Resources
 pub const Texture = @import("resources/texture.zig").Texture;

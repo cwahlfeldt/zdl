@@ -32,16 +32,17 @@ pub const Mat4 = struct {
     }
 
     /// Create perspective projection matrix
+    /// Vulkan/Metal compatible (uses [0, 1] depth range, Y-down clip space)
     pub fn perspective(fov_radians: f32, aspect: f32, near: f32, far: f32) Mat4 {
         var result = Mat4{ .data = [_]f32{0} ** 16 };
 
         const tan_half_fov = @tan(fov_radians / 2.0);
 
         result.data[0] = 1.0 / (aspect * tan_half_fov);
-        result.data[5] = 1.0 / tan_half_fov;
-        result.data[10] = -(far + near) / (far - near);
+        result.data[5] = -1.0 / tan_half_fov; // Negate for Y-down
+        result.data[10] = far / (near - far);
         result.data[11] = -1.0;
-        result.data[14] = -(2.0 * far * near) / (far - near);
+        result.data[14] = -(far * near) / (far - near);
 
         return result;
     }
@@ -96,5 +97,22 @@ pub const Mat4 = struct {
         }
 
         return result;
+    }
+
+    /// Create a view matrix using lookAt
+    /// eye: camera position
+    /// target: point to look at
+    /// up: up direction (usually world up: 0, 1, 0)
+    pub fn lookAt(eye: @import("vec3.zig").Vec3, target: @import("vec3.zig").Vec3, up: @import("vec3.zig").Vec3) Mat4 {
+        const f = target.sub(eye).normalize();
+        const r = f.cross(up).normalize();
+        const u = r.cross(f);
+
+        return .{ .data = [_]f32{
+            r.x,  u.x,  -f.x, 0,
+            r.y,  u.y,  -f.y, 0,
+            r.z,  u.z,  -f.z, 0,
+            -r.dot(eye), -u.dot(eye), f.dot(eye), 1,
+        } };
     }
 };
