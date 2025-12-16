@@ -10,6 +10,7 @@ const SpriteBatch = sprite.SpriteBatch;
 const SpriteVertex = sprite.SpriteVertex;
 const MVPUniforms = @import("../gpu/uniforms.zig").MVPUniforms;
 const Texture = @import("../resources/texture.zig").Texture;
+const Audio = @import("../audio/audio.zig").Audio;
 
 // Platform-specific shader configuration
 const is_macos = builtin.os.tag == .macos;
@@ -42,6 +43,7 @@ pub const Engine = struct {
     input: Input,
     camera: Camera2D,
     sprite_batch: SpriteBatch,
+    audio: Audio,
 
     // GPU Resources
     vertex_buffer: sdl.gpu.Buffer,
@@ -84,6 +86,9 @@ pub const Engine = struct {
 
         var sprite_batch = SpriteBatch.init(allocator, 1000);
         errdefer sprite_batch.deinit();
+
+        var audio = try Audio.init(allocator);
+        errdefer audio.deinit();
 
         // Create GPU resources
         const max_vertices = 6000;
@@ -222,6 +227,7 @@ pub const Engine = struct {
             .input = input,
             .camera = camera,
             .sprite_batch = sprite_batch,
+            .audio = audio,
             .vertex_buffer = vertex_buffer,
             .transfer_buffer = transfer_buffer,
             .pipeline = pipeline,
@@ -232,6 +238,7 @@ pub const Engine = struct {
     }
 
     pub fn deinit(self: *Engine) void {
+        self.audio.deinit();
         self.device.releaseSampler(self.sampler);
         var mutable_device = self.device;
         self.white_texture.deinit(&mutable_device);
@@ -252,6 +259,7 @@ pub const Engine = struct {
             .input = &self.input,
             .camera = &self.camera,
             .sprite_batch = &self.sprite_batch,
+            .audio = &self.audio,
             .device = &self.device,
             .window = &self.window,
             .vertex_buffer = &self.vertex_buffer,

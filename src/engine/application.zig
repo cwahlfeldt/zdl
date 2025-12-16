@@ -3,6 +3,7 @@ const sdl = @import("sdl3");
 const Input = @import("../input/input.zig").Input;
 const Camera2D = @import("../camera.zig").Camera2D;
 const SpriteBatch = @import("../renderer/sprite.zig").SpriteBatch;
+const Audio = @import("../audio/audio.zig").Audio;
 
 /// Application interface that games must implement
 pub const Application = struct {
@@ -39,6 +40,7 @@ pub const Context = struct {
     input: *Input,
     camera: *Camera2D,
     sprite_batch: *SpriteBatch,
+    audio: *Audio,
     device: *sdl.gpu.Device,
     window: *sdl.video.Window,
 

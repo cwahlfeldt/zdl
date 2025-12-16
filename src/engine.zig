@@ -19,6 +19,10 @@ pub const Animator = animation.Animator;
 pub const tilemap = @import("renderer/tilemap.zig");
 pub const Tilemap = tilemap.Tilemap;
 pub const Tile = tilemap.Tile;
+pub const particles = @import("renderer/particles.zig");
+pub const Particle = particles.Particle;
+pub const ParticleEmitter = particles.ParticleEmitter;
+pub const EmitterConfig = particles.EmitterConfig;
 
 // Math
 pub const math = @import("math/math.zig");
@@ -29,3 +33,13 @@ pub const Mat4 = math.Mat4;
 
 // Resources
 pub const Texture = @import("resources/texture.zig").Texture;
+
+// Audio
+pub const audio = @import("audio/audio.zig");
+pub const Audio = audio.Audio;
+pub const Sound = audio.Sound;
+
+// UI
+pub const ui = @import("ui/ui.zig");
+pub const BitmapFont = ui.BitmapFont;
+pub const HUD = ui.HUD;

@@ -49,14 +49,36 @@ pub fn build(b: *std.Build) void {
     platformer.root_module.addImport("engine", engine_module);
     b.installArtifact(platformer);
 
-    // Default run step (pong)
+    // Build Collector example (Phase 3 demo)
+    const collector = b.addExecutable(.{
+        .name = "collector",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("examples/collector/main.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    collector.root_module.addImport("sdl3", sdl3.module("sdl3"));
+    collector.root_module.addImport("engine", engine_module);
+    b.installArtifact(collector);
+
+    // Default run step (collector - best demo of Phase 3 features)
+    const run_collector = b.addRunArtifact(collector);
+    run_collector.step.dependOn(b.getInstallStep());
+    if (b.args) |args| {
+        run_collector.addArgs(args);
+    }
+    const run_step = b.step("run", "Run Collector example (Phase 3 demo)");
+    run_step.dependOn(&run_collector.step);
+
+    // Run pong
     const run_pong = b.addRunArtifact(pong);
     run_pong.step.dependOn(b.getInstallStep());
     if (b.args) |args| {
         run_pong.addArgs(args);
     }
-    const run_step = b.step("run", "Run Pong example");
-    run_step.dependOn(&run_pong.step);
+    const run_pong_step = b.step("run-pong", "Run Pong example");
+    run_pong_step.dependOn(&run_pong.step);
 
     // Run platformer
     const run_platformer = b.addRunArtifact(platformer);
