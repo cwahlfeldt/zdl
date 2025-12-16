@@ -4,34 +4,106 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
+    // Compile shaders
+    compileShaders(b) catch |err| {
+        std.debug.print("Warning: Failed to compile shaders: {}\n", .{err});
+    };
+
     // Get zig-sdl3 dependency
     const sdl3 = b.dependency("sdl3", .{
         .target = target,
         .optimize = optimize,
     });
 
-    const exe = b.addExecutable(.{
-        .name = "zdl",
+    // Create engine module
+    const engine_module = b.createModule(.{
+        .root_source_file = b.path("src/engine.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    engine_module.addImport("sdl3", sdl3.module("sdl3"));
+
+    // Build Pong example (default)
+    const pong = b.addExecutable(.{
+        .name = "pong",
         .root_module = b.createModule(.{
-            .root_source_file = b.path("src/main.zig"),
+            .root_source_file = b.path("examples/pong/main.zig"),
             .target = target,
             .optimize = optimize,
         }),
     });
+    pong.root_module.addImport("sdl3", sdl3.module("sdl3"));
+    pong.root_module.addImport("engine", engine_module);
+    b.installArtifact(pong);
 
-    // Add SDL3 module to the executable
-    exe.root_module.addImport("sdl3", sdl3.module("sdl3"));
+    // Build Platformer example
+    const platformer = b.addExecutable(.{
+        .name = "platformer",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("examples/platformer/main.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    platformer.root_module.addImport("sdl3", sdl3.module("sdl3"));
+    platformer.root_module.addImport("engine", engine_module);
+    b.installArtifact(platformer);
 
-    b.installArtifact(exe);
-
-    // Create run step
-    const run_cmd = b.addRunArtifact(exe);
-    run_cmd.step.dependOn(b.getInstallStep());
-
+    // Default run step (pong)
+    const run_pong = b.addRunArtifact(pong);
+    run_pong.step.dependOn(b.getInstallStep());
     if (b.args) |args| {
-        run_cmd.addArgs(args);
+        run_pong.addArgs(args);
     }
+    const run_step = b.step("run", "Run Pong example");
+    run_step.dependOn(&run_pong.step);
 
-    const run_step = b.step("run", "Run the app");
-    run_step.dependOn(&run_cmd.step);
+    // Run platformer
+    const run_platformer = b.addRunArtifact(platformer);
+    run_platformer.step.dependOn(b.getInstallStep());
+    if (b.args) |args| {
+        run_platformer.addArgs(args);
+    }
+    const run_platformer_step = b.step("run-platformer", "Run Platformer example");
+    run_platformer_step.dependOn(&run_platformer.step);
+}
+
+/// Compile GLSL shaders to SPIR-V using glslangValidator
+fn compileShaders(b: *std.Build) !void {
+    const shader_dir = "src/shaders/";
+
+    // List of shaders to compile
+    const shaders = [_]struct { src: []const u8, stage: []const u8 }{
+        .{ .src = "vertex.vert", .stage = "vert" },
+        .{ .src = "fragment.frag", .stage = "frag" },
+    };
+
+    for (shaders) |shader| {
+        const src_path = b.fmt("{s}{s}", .{ shader_dir, shader.src });
+        const out_path = b.fmt("{s}{s}.spv", .{ shader_dir, shader.src[0 .. shader.src.len - 5] });
+
+        // Run glslangValidator
+        const result = std.process.Child.run(.{
+            .allocator = b.allocator,
+            .argv = &[_][]const u8{
+                "glslangValidator",
+                "-V",
+                src_path,
+                "-o",
+                out_path,
+            },
+        }) catch |err| {
+            std.debug.print("Shader compilation skipped (glslangValidator not found): {}\n", .{err});
+            return;
+        };
+        defer b.allocator.free(result.stdout);
+        defer b.allocator.free(result.stderr);
+
+        if (result.term.Exited != 0) {
+            std.debug.print("Failed to compile {s}:\n{s}\n", .{ src_path, result.stderr });
+            return error.ShaderCompilationFailed;
+        }
+
+        std.debug.print("Compiled shader: {s} -> {s}\n", .{ src_path, out_path });
+    }
 }

@@ -1,11 +1,10 @@
 const std = @import("std");
-const Application = @import("../engine/application.zig");
-const Context = Application.Context;
-const Input = @import("../input/input.zig").Input;
-const math = @import("../math/math.zig");
-const Vec2 = math.Vec2;
-const sprite = @import("../renderer/sprite.zig");
-const Color = sprite.Color;
+const zdl = @import("engine");
+const Application = zdl.Application;
+const Context = zdl.Context;
+const Input = zdl.Input;
+const Vec2 = zdl.Vec2;
+const Color = zdl.Color;
 
 const PADDLE_WIDTH: f32 = 20;
 const PADDLE_HEIGHT: f32 = 100;
