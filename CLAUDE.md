@@ -4,12 +4,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a Zig project using SDL3 for graphics and window management. The project name is "zdl" (Zig + SDL).
+ZDL is a 3D game engine built with Zig and SDL3. The engine provides a clean, modular architecture for building 3D applications with perspective rendering, mesh management, and modern GPU pipeline support.
 
-**Important**: This project has a clean separation between the **game engine** and **game code**. When working on this project:
-- Engine code is in `src/engine/` - only modify if changing core engine functionality
-- Game code is in `src/game/` - this is where gameplay logic lives
-- See [ENGINE_README.md](ENGINE_README.md) for the engine architecture and API
+**Architecture Principles:**
+- Clean separation between engine and game code
+- 3D-focused with perspective projection and depth testing
+- Modern GPU pipeline with SPIR-V shaders (Metal on macOS)
 
 ## Build System
 
@@ -23,7 +23,7 @@ This is a Zig project using SDL3 for graphics and window management. The project
 # Build the project
 zig build
 
-# Run the application
+# Run the cube3d example
 zig build run
 
 # Clean build artifacts
@@ -32,33 +32,59 @@ rm -rf zig-out .zig-cache
 
 ## Dependencies
 
-The project uses `zig-sdl3` from Codeberg (7Games/zig-sdl3) for SDL3 bindings. The dependency is declared in `build.zig.zon` and imported as `sdl3` module in the build script.
+The project uses `zig-sdl3` from Codeberg (7Games/zig-sdl3) for SDL3 bindings. Shaders are compiled from GLSL to SPIR-V using `glslangValidator`.
 
 ## Architecture
 
-### Engine-Game Separation
+### Directory Structure
 
-The codebase is organized into two main parts:
+```
+src/
+├── engine/           # Core engine
+│   ├── engine.zig    # Main engine, GPU setup, game loop
+│   └── application.zig # Application interface
+├── input/            # Input system
+├── math/             # Vec2, Vec3, Vec4, Mat4, Quat
+├── resources/        # Mesh, Texture, Primitives
+├── gpu/              # GPU uniforms
+├── shaders/          # GLSL vertex/fragment shaders
+├── audio/            # Audio system
+├── camera.zig        # 3D perspective camera
+├── transform.zig     # 3D transform (position, rotation, scale)
+└── engine.zig        # Module exports
 
-**Engine Layer** (`src/engine/`, `src/input/`, `src/renderer/`, `src/math/`, etc.):
-- [src/engine/engine.zig](src/engine/engine.zig) - Core engine that manages SDL3, GPU, and game loop
-- [src/engine/application.zig](src/engine/application.zig) - Application interface for games
-- [src/input/input.zig](src/input/input.zig) - Input system
-- [src/renderer/sprite.zig](src/renderer/sprite.zig) - Sprite batching and rendering
-- [src/camera.zig](src/camera.zig) - 2D camera with orthographic projection
-- [src/math/](src/math/) - Math library (Vec2, Mat4, etc.)
+examples/
+└── cube3d/           # 3D cube demo
+```
 
-**Game Layer** (`src/game/`):
-- [src/game/platformer.zig](src/game/platformer.zig) - Platformer game example
-- [src/game/pong.zig](src/game/pong.zig) - Pong game example
-- Games implement the `Application` interface with `init()`, `deinit()`, `update()`, `render()`
+### Core Components
 
-**Entry Point**:
-- [src/main.zig](src/main.zig) - Minimal boilerplate that initializes the engine and runs the game
+**Engine** ([src/engine/engine.zig](src/engine/engine.zig)):
+- SDL3 initialization and GPU device management
+- 3D graphics pipeline with depth testing
+- Game loop with delta timing and FPS counter
+
+**Camera** ([src/camera.zig](src/camera.zig)):
+- Perspective projection (fov, aspect, near/far planes)
+- View matrix (position, target, up vector)
+- Movement: moveForward, moveRight, moveUp, orbit
+
+**Transform** ([src/transform.zig](src/transform.zig)):
+- Position (Vec3), Rotation (Quaternion), Scale (Vec3)
+- TRS matrix generation
+- Direction helpers: forward, right, up
+
+**Mesh** ([src/resources/mesh.zig](src/resources/mesh.zig)):
+- Vertex3D format: position, normal, UV, color
+- GPU buffer upload
+- Index buffer support
+
+**Primitives** ([src/resources/primitives.zig](src/resources/primitives.zig)):
+- createCube, createPlane, createQuad, createSphere
 
 ### Application Interface
 
-Games implement four simple methods:
+Games implement four methods:
 ```zig
 pub fn init(self: *MyGame, ctx: *Context) !void
 pub fn deinit(self: *MyGame, ctx: *Context) void
@@ -66,35 +92,40 @@ pub fn update(self: *MyGame, ctx: *Context, delta_time: f32) !void
 pub fn render(self: *MyGame, ctx: *Context) !void
 ```
 
-The `Context` provides access to:
-- `ctx.input` - Input system
-- `ctx.camera` - 2D camera
-- `ctx.sprite_batch` - Sprite renderer
-- `ctx.device`, `ctx.window` - Low-level SDL3 access
+Context provides access to:
+- `ctx.allocator` - Memory allocator
+- `ctx.input` - Keyboard input
+- `ctx.camera` - 3D camera (engine-managed)
+- `ctx.audio` - Audio system
+- `ctx.device` - GPU device
+- `ctx.pipeline` - Graphics pipeline
+- `ctx.depth_texture` - Depth buffer
+- `ctx.white_texture`, `ctx.sampler` - Default texture/sampler
 
-### Build Configuration
+### Rendering
 
-[build.zig](build.zig) defines:
-- Executable target configuration with standard optimization options
-- SDL3 dependency resolution and module imports
-- Run step for executing the built application
-- Command-line argument forwarding to the executable
+Games handle their own rendering using the graphics context:
+```zig
+const cmd = try ctx.device.acquireCommandBuffer();
+// ... setup render pass with depth target
+pass.bindGraphicsPipeline(ctx.pipeline.*);
+// ... push uniforms, bind mesh, draw
+```
 
-## Development Notes
-
-- The project uses Zig's defer pattern for resource cleanup
-- Engine handles all SDL3 initialization, GPU setup, and the game loop
-- Coordinate system: (0, 0) is the center of the screen, Y-down
-- Frame timing uses delta time for smooth, framerate-independent movement
-- Sprite batching minimizes draw calls for better performance
+Uniforms use Model-View-Projection matrices:
+```zig
+const uniforms = Uniforms.init(
+    transform.getMatrix(),    // Model
+    camera.getViewMatrix(),   // View
+    camera.getProjectionMatrix(), // Projection
+);
+```
 
 ## Creating a New Game
 
-To create a new game:
+1. Create `examples/my_game/my_game.zig` implementing the Application interface
+2. Create `examples/my_game/main.zig` with engine initialization
+3. Add the executable to `build.zig`
+4. Build and run with `zig build run-my-game`
 
-1. Create a new file in `src/game/your_game.zig`
-2. Implement the Application interface (see `platformer.zig` or `pong.zig` for examples)
-3. Update `src/main.zig` to import and run your game
-4. Build and run with `zig build run`
-
-The engine takes care of everything else!
+See `examples/cube3d/` for a complete example.

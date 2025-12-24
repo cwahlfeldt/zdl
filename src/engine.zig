@@ -1,29 +1,17 @@
-// ZDL Engine - Main module export
+// ZDL Engine - 3D Game Engine
+// Main module export
+
+// Core Engine
 pub const Engine = @import("engine/engine.zig").Engine;
 pub const EngineConfig = @import("engine/engine.zig").EngineConfig;
+pub const RenderFrame = @import("engine/engine.zig").RenderFrame;
+pub const Color = @import("engine/engine.zig").Color;
 pub const Application = @import("engine/application.zig");
 pub const Context = Application.Context;
 
 // Subsystems
 pub const Input = @import("input/input.zig").Input;
-pub const Camera2D = @import("camera.zig").Camera2D;
-pub const Camera3D = @import("camera.zig").Camera3D;
-pub const sprite = @import("renderer/sprite.zig");
-pub const SpriteBatch = sprite.SpriteBatch;
-pub const Color = sprite.Color;
-
-// Rendering
-pub const animation = @import("renderer/animation.zig");
-pub const Animation = animation.Animation;
-pub const AnimationFrame = animation.AnimationFrame;
-pub const Animator = animation.Animator;
-pub const tilemap = @import("renderer/tilemap.zig");
-pub const Tilemap = tilemap.Tilemap;
-pub const Tile = tilemap.Tile;
-pub const particles = @import("renderer/particles.zig");
-pub const Particle = particles.Particle;
-pub const ParticleEmitter = particles.ParticleEmitter;
-pub const EmitterConfig = particles.EmitterConfig;
+pub const Camera = @import("camera.zig").Camera;
 
 // Math
 pub const math = @import("math/math.zig");
@@ -33,11 +21,12 @@ pub const Vec4 = math.Vec4;
 pub const Mat4 = math.Mat4;
 pub const Quat = math.Quat;
 
-// 3D Support
+// 3D Graphics
 pub const Transform = @import("transform.zig").Transform;
 pub const Mesh = @import("resources/mesh.zig").Mesh;
 pub const Vertex3D = @import("resources/mesh.zig").Vertex3D;
 pub const primitives = @import("resources/primitives.zig");
+pub const Uniforms = @import("gpu/uniforms.zig").Uniforms;
 
 // Resources
 pub const Texture = @import("resources/texture.zig").Texture;
@@ -46,8 +35,3 @@ pub const Texture = @import("resources/texture.zig").Texture;
 pub const audio = @import("audio/audio.zig");
 pub const Audio = audio.Audio;
 pub const Sound = audio.Sound;
-
-// UI
-pub const ui = @import("ui/ui.zig");
-pub const BitmapFont = ui.BitmapFont;
-pub const HUD = ui.HUD;

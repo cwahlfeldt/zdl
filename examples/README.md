@@ -1,82 +1,58 @@
 # ZDL Engine Examples
 
-This directory contains example games built with the ZDL engine, showcasing what you can build and how to use the engine's features.
+This directory contains example applications built with the ZDL 3D engine.
 
-## Running the Examples
+## Running Examples
 
-### Pong (Default)
+### 3D Cube Demo (Default)
+
 ```bash
 zig build run
 ```
 
 **Controls:**
-- Left Player: W (up), S (down)
-- Right Player: Arrow Up, Arrow Down
-- ESC to quit
-
-### Platformer
-```bash
-zig build run-platformer
-```
-
-**Controls:**
-- WASD or Arrow Keys: Move left/right
-- Space, W, or Up: Jump
-- ESC to quit
+- WASD/Arrow Keys: Move camera forward/back/left/right
+- Q/E: Move camera up/down
+- F3: Toggle FPS counter
+- ESC: Quit
 
 ## Example Structure
 
-Each example is organized in its own directory:
-
 ```
 examples/
-├── pong/
-│   ├── main.zig        # Entry point
-│   └── pong.zig        # Game implementation
-└── platformer/
+└── cube3d/
     ├── main.zig        # Entry point
-    └── platformer.zig  # Game implementation
+    └── cube3d.zig      # Game implementation
 ```
 
-## What Each Example Demonstrates
+## What the Example Demonstrates
 
-### Pong (`examples/pong/`)
-**Complexity:** Simple (~150 lines)
+### Cube3D (`examples/cube3d/`)
+
 **Features:**
-- Two-player input handling
-- Ball physics (velocity and bouncing)
-- Paddle collision detection
-- Score tracking
-- Clean game state management
+- Creating 3D meshes (cube and plane primitives)
+- Uploading meshes to GPU
+- 3D camera with perspective projection
+- Camera movement controls
+- Transform system with quaternion rotation
+- Per-object Model-View-Projection uniforms
+- Depth-tested rendering
+- Window resize handling
 
 **Good for learning:**
-- Basic game structure
-- Input handling for multiple players
-- Simple physics
-- Drawing with sprite batch
-
-### Platformer (`examples/platformer/`)
-**Complexity:** Intermediate (~165 lines)
-**Features:**
-- Player movement and physics
-- Gravity and jumping mechanics
-- Platform collision detection (AABB)
-- Separate X and Y collision handling
-- Multiple input methods (WASD + Arrows)
-
-**Good for learning:**
-- Physics-based movement
-- Collision detection
-- Delta time usage for smooth movement
-- Separating collision axes
+- 3D rendering basics
+- Camera controls
+- Transform hierarchies
+- GPU resource management
 
 ## Creating Your Own Example
 
 1. Create a new directory: `examples/my_game/`
+
 2. Create `main.zig`:
 ```zig
 const std = @import("std");
-const zdl = @import("engine");
+const engine = @import("engine");
 const MyGame = @import("my_game.zig").MyGame;
 
 pub fn main() !void {
@@ -84,48 +60,69 @@ pub fn main() !void {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    var engine = try zdl.Engine.init(allocator, .{
+    var eng = try engine.Engine.init(allocator, .{
         .window_title = "My Game",
-        .window_width = 960,
-        .window_height = 540,
+        .window_width = 1280,
+        .window_height = 720,
     });
-    defer engine.deinit();
+    defer eng.deinit();
 
-    var game = MyGame{};
-    const app = zdl.Application.createApplication(MyGame, &game);
-    try engine.run(app);
+    var game: MyGame = .{};
+    const app = engine.Application.createApplication(MyGame, &game);
+    try eng.run(app);
 }
 ```
 
 3. Create `my_game.zig`:
 ```zig
 const std = @import("std");
-const zdl = @import("engine");
+const engine = @import("engine");
+const Context = engine.Context;
+const Camera = engine.Camera;
+const Transform = engine.Transform;
+const Vec3 = engine.Vec3;
+const Mesh = engine.Mesh;
+const primitives = engine.primitives;
+const Uniforms = engine.Uniforms;
 
 pub const MyGame = struct {
-    // Your game state
+    camera: Camera = undefined,
+    mesh: ?Mesh = null,
+    transform: Transform = undefined,
 
-    pub fn init(self: *MyGame, ctx: *zdl.Context) !void {
-        // Initialize
+    pub fn init(self: *MyGame, ctx: *Context) !void {
+        const size = ctx.getWindowSize();
+        self.camera = Camera.init(size.width, size.height);
+        self.camera.position = Vec3.init(0, 2, 5);
+        self.camera.target = Vec3.init(0, 0, 0);
+
+        self.mesh = try primitives.createCube(ctx.allocator);
+        try self.mesh.?.upload(ctx.device);
+
+        self.transform = Transform.withPosition(Vec3.init(0, 0, 0));
     }
 
-    pub fn deinit(self: *MyGame, ctx: *zdl.Context) void {
-        // Cleanup
+    pub fn deinit(self: *MyGame, ctx: *Context) void {
+        if (self.mesh) |*m| m.deinit(ctx.device);
     }
 
-    pub fn update(self: *MyGame, ctx: *zdl.Context, delta_time: f32) !void {
-        // Update logic
+    pub fn update(self: *MyGame, ctx: *Context, delta_time: f32) !void {
+        // Handle input, update game state
+        _ = self;
+        _ = ctx;
+        _ = delta_time;
     }
 
-    pub fn render(self: *MyGame, ctx: *zdl.Context) !void {
-        // Draw your game
+    pub fn render(self: *MyGame, ctx: *Context) !void {
+        // See cube3d.zig for full rendering example
+        _ = self;
+        _ = ctx;
     }
 };
 ```
 
 4. Add to `build.zig`:
 ```zig
-// In the build() function, add:
 const my_game = b.addExecutable(.{
     .name = "my_game",
     .root_module = b.createModule(.{
@@ -149,37 +146,27 @@ run_my_game_step.dependOn(&run_my_game.step);
 zig build run-my-game
 ```
 
-## Engine Import
+## Engine Imports
 
-All examples import the engine using:
+All examples import the engine:
 ```zig
-const zdl = @import("engine");
+const engine = @import("engine");
 ```
 
-This gives you access to:
-- `zdl.Engine` - The engine itself
-- `zdl.Application` - Application interface
-- `zdl.Context` - Context passed to your game
-- `zdl.Input` - Input system
-- `zdl.Camera2D` - 2D camera
-- `zdl.SpriteBatch` - Sprite renderer
-- `zdl.Color` - Color helpers
-- `zdl.Vec2`, `zdl.Mat4` - Math types
+Available exports:
+- `engine.Engine` - The engine core
+- `engine.Application` - Application interface
+- `engine.Context` - Runtime context
+- `engine.Camera` - 3D perspective camera
+- `engine.Transform` - 3D transform (position, rotation, scale)
+- `engine.Mesh`, `engine.Vertex3D` - Mesh system
+- `engine.primitives` - Cube, plane, sphere generators
+- `engine.Uniforms` - GPU uniform data
+- `engine.Texture` - Texture loading
+- `engine.Input` - Keyboard input
+- `engine.Audio`, `engine.Sound` - Audio system
+- `engine.Vec2`, `engine.Vec3`, `engine.Vec4` - Vector types
+- `engine.Mat4` - 4x4 matrix
+- `engine.Quat` - Quaternion
 
-See [../ENGINE_README.md](../ENGINE_README.md) for complete API documentation.
-
-## Tips
-
-- Keep your game logic in a separate `.zig` file (like `pong.zig`)
-- Use `main.zig` only for engine initialization
-- Study the existing examples to see patterns
-- Start simple - get something on screen first, then add features
-- Use delta_time for all movement to keep it smooth
-
-## Contributing Examples
-
-If you create a cool example game, consider contributing it! Good examples:
-- Demonstrate a specific feature or technique
-- Are well-commented
-- Include a description of what they showcase
-- Are simple enough to understand but interesting enough to be useful
+See [../CLAUDE.md](../CLAUDE.md) for complete API documentation.

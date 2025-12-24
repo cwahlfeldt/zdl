@@ -1,16 +1,24 @@
-# ZDL - Zig + SDL3 Game Engine
+# ZDL - Zig 3D Game Engine
 
-A lightweight, beginner-friendly 2D game engine built with Zig and SDL3. Focus on making games, not wrestling with GPU APIs.
+A lightweight 3D game engine built with Zig and SDL3. Features perspective rendering, mesh management, and a modern GPU pipeline.
 
 ## Quick Start
 
 ```bash
-# Run Pong example
+# Build and run the 3D cube demo
 zig build run
-
-# Run Platformer example
-zig build run-platformer
 ```
+
+## Features
+
+- **3D Graphics Pipeline** - Perspective projection, depth testing, backface culling
+- **Mesh System** - Vertex3D format with normals, UVs, colors; GPU buffer upload
+- **Primitives** - Built-in cube, plane, quad, sphere generators
+- **Transform System** - Position, rotation (quaternion), scale with TRS matrix
+- **3D Camera** - Perspective projection, view matrix, movement controls
+- **Input System** - Keyboard state tracking
+- **Audio System** - WAV loading and playback
+- **Math Library** - Vec2, Vec3, Vec4, Mat4, Quat
 
 ## Project Structure
 
@@ -19,27 +27,25 @@ zdl/
 ├── src/                    # Engine source code
 │   ├── engine/            # Core engine (SDL3, GPU, game loop)
 │   ├── input/             # Input system
-│   ├── renderer/          # Sprite batching and rendering
-│   ├── math/              # Math library (Vec2, Mat4, etc.)
-│   ├── camera.zig         # 2D camera system
-│   └── engine.zig         # Engine module root
+│   ├── resources/         # Mesh, Texture, Primitives
+│   ├── math/              # Math library
+│   ├── gpu/               # GPU uniforms
+│   ├── shaders/           # GLSL shaders
+│   ├── audio/             # Audio system
+│   ├── camera.zig         # 3D camera
+│   ├── transform.zig      # 3D transform
+│   └── engine.zig         # Module exports
 │
-├── examples/              # Example games
-│   ├── pong/             # Classic Pong
-│   └── platformer/       # Platformer with physics
+├── examples/
+│   └── cube3d/            # 3D rotating cube demo
 │
-├── ENGINE_README.md       # Complete API documentation
-├── QUICKSTART.md          # 5-minute tutorial
-└── MIGRATION_GUIDE.md     # Architecture evolution
+└── build.zig              # Build configuration
 ```
 
-## Philosophy
+## Application Interface
 
-**Engine = src/** - Handles all the complex SDL3/GPU stuff you don't want to think about
+Games implement four simple methods:
 
-**Examples = examples/** - Shows you how to make games using the engine
-
-You work with a simple 4-method interface:
 ```zig
 pub fn init(self: *MyGame, ctx: *Context) !void
 pub fn deinit(self: *MyGame, ctx: *Context) void
@@ -47,121 +53,139 @@ pub fn update(self: *MyGame, ctx: *Context, delta_time: f32) !void
 pub fn render(self: *MyGame, ctx: *Context) !void
 ```
 
-That's it. The engine handles everything else.
+## Example: 3D Cube Demo
 
-## What You Get
+The cube3d example demonstrates:
+- Creating and uploading meshes to GPU
+- 3D camera with WASD movement
+- Transform rotation with quaternions
+- Per-object Model-View-Projection uniforms
+- Depth-tested rendering
 
-✅ **Window & SDL3** - Automatic initialization and cleanup
-✅ **GPU Rendering** - Shader compilation, buffers, pipelines
-✅ **Input System** - Keyboard state tracking (down, just pressed, released)
-✅ **2D Camera** - Orthographic projection with coordinate conversion
-✅ **Sprite Batch** - Efficient rendering of colored quads
-✅ **Frame Timing** - Delta time for smooth, framerate-independent movement
-✅ **Math Library** - Vec2, Mat4 with all the operations you need
+Controls:
+- WASD/Arrow Keys: Move camera
+- Q/E: Move up/down
+- F3: Toggle FPS counter
+- ESC: Quit
 
-## Create Your First Game (30 seconds)
+## Creating a New Game
+
+1. Create your game file in `examples/my_game/`:
 
 ```zig
+// my_game.zig
 const std = @import("std");
-const zdl = @import("engine");
+const engine = @import("engine");
 
 pub const MyGame = struct {
-    x: f32 = 0,
+    // Your game state here
 
-    pub fn init(self: *MyGame, ctx: *zdl.Context) !void { _ = ctx; _ = self; }
-    pub fn deinit(self: *MyGame, ctx: *zdl.Context) void { _ = ctx; _ = self; }
-
-    pub fn update(self: *MyGame, ctx: *zdl.Context, delta_time: f32) !void {
-        if (ctx.input.isKeyDown(.d)) self.x += 200 * delta_time;
+    pub fn init(self: *MyGame, ctx: *engine.Context) !void {
+        // Initialize meshes, camera, etc.
     }
 
-    pub fn render(self: *MyGame, ctx: *zdl.Context) !void {
-        try ctx.sprite_batch.addQuad(self.x, 0, 50, 50, zdl.Color.red());
+    pub fn deinit(self: *MyGame, ctx: *engine.Context) void {
+        // Cleanup
+    }
+
+    pub fn update(self: *MyGame, ctx: *engine.Context, delta_time: f32) !void {
+        // Game logic, input handling
+    }
+
+    pub fn render(self: *MyGame, ctx: *engine.Context) !void {
+        // Render your scene
     }
 };
 ```
 
-See [QUICKSTART.md](QUICKSTART.md) for a complete walkthrough.
+2. Create `main.zig`:
 
-## Examples
+```zig
+const std = @import("std");
+const engine = @import("engine");
+const MyGame = @import("my_game.zig").MyGame;
 
-### Pong (~150 lines)
-Two-player classic with ball physics and scoring.
-```bash
-zig build run
+pub fn main() !void {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
+
+    var eng = try engine.Engine.init(gpa.allocator(), .{
+        .window_title = "My Game",
+        .window_width = 1280,
+        .window_height = 720,
+    });
+    defer eng.deinit();
+
+    var game: MyGame = .{};
+    const app = engine.Application.createApplication(MyGame, &game);
+    try eng.run(app);
+}
 ```
 
-### Platformer (~165 lines)
-Jump on platforms with gravity and collision detection.
-```bash
-zig build run-platformer
+3. Add to `build.zig` and run with `zig build run-my-game`
+
+## Engine API
+
+### Camera
+
+```zig
+var camera = Camera.init(width, height);
+camera.position = Vec3.init(0, 2, 5);
+camera.target = Vec3.init(0, 0, 0);
+camera.moveForward(distance);
+camera.moveRight(distance);
+camera.orbit(yaw, pitch);
 ```
 
-See [examples/README.md](examples/README.md) for details.
+### Transform
 
-## Documentation
+```zig
+var transform = Transform.withPosition(Vec3.init(0, 0, 0));
+transform.scale = Vec3.init(2, 2, 2);
+transform.setRotationEuler(pitch, yaw, roll);
+const model_matrix = transform.getMatrix();
+```
 
-- **[QUICKSTART.md](QUICKSTART.md)** - Make your first game in 5 minutes
-- **[ENGINE_README.md](ENGINE_README.md)** - Complete API reference
-- **[examples/README.md](examples/README.md)** - Example games walkthrough
-- **[MIGRATION_GUIDE.md](MIGRATION_GUIDE.md)** - See how the architecture evolved
-- **[CLAUDE.md](CLAUDE.md)** - Project guide for AI assistants
+### Mesh
+
+```zig
+var mesh = try primitives.createCube(allocator);
+try mesh.upload(device);
+defer mesh.deinit(device);
+```
+
+### Uniforms
+
+```zig
+const uniforms = Uniforms.init(
+    transform.getMatrix(),
+    camera.getViewMatrix(),
+    camera.getProjectionMatrix(),
+);
+cmd.pushVertexUniformData(1, std.mem.asBytes(&uniforms));
+```
 
 ## Requirements
 
 - Zig 0.15.2
-- SDL3 (automatically fetched via build system)
-- macOS, Linux, or Windows
+- SDL3 (automatically fetched)
+- glslangValidator (for shader compilation)
 
 ## Building
 
 ```bash
-# Build all examples
-zig build
-
-# Run pong (default)
-zig build run
-
-# Run platformer
-zig build run-platformer
-
-# Clean
-rm -rf zig-out .zig-cache
+zig build           # Build all
+zig build run       # Run cube3d example
+rm -rf zig-out .zig-cache  # Clean
 ```
-
-## Engine Architecture
-
-The engine is cleanly separated from game code:
-
-**Engine Layer** (`src/`):
-- Handles SDL3 initialization, GPU setup, shaders
-- Manages game loop, timing, events
-- Provides high-level systems (input, camera, sprite rendering)
-
-**Game Layer** (`examples/`):
-- Your game logic in 4 simple methods
-- No need to touch engine internals
-- Just import `"engine"` and start coding
-
-## Contributing
-
-Contributions welcome! Areas of interest:
-- New example games
-- Bug fixes
-- Documentation improvements
-- New engine features (texture loading, audio, etc.)
 
 ## License
 
-MIT License - see LICENSE file for details
+MIT License
 
 ## Credits
 
 Built with:
-- [Zig](https://ziglang.org/) - Fast, safe systems programming
-- [SDL3](https://github.com/libsdl-org/SDL) - Cross-platform multimedia library
-- [zig-sdl3](https://codeberg.org/7Games/zig-sdl3) - Zig bindings for SDL3
-
----
-
-**Ready to make games?** Check out [QUICKSTART.md](QUICKSTART.md)!
+- [Zig](https://ziglang.org/)
+- [SDL3](https://github.com/libsdl-org/SDL)
+- [zig-sdl3](https://codeberg.org/7Games/zig-sdl3)

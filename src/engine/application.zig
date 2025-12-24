@@ -1,9 +1,9 @@
 const std = @import("std");
 const sdl = @import("sdl3");
 const Input = @import("../input/input.zig").Input;
-const Camera2D = @import("../camera.zig").Camera2D;
-const SpriteBatch = @import("../renderer/sprite.zig").SpriteBatch;
+const Camera = @import("../camera.zig").Camera;
 const Audio = @import("../audio/audio.zig").Audio;
+const Texture = @import("../resources/texture.zig").Texture;
 
 /// Application interface that games must implement
 pub const Application = struct {
@@ -38,18 +38,28 @@ pub const Application = struct {
 pub const Context = struct {
     allocator: std.mem.Allocator,
     input: *Input,
-    camera: *Camera2D, // TODO: 3D camera
-    sprite_batch: *SpriteBatch,
+    camera: *Camera,
     audio: *Audio,
     device: *sdl.gpu.Device,
     window: *sdl.video.Window,
 
-    // Cached resources (for advanced usage)
-    vertex_buffer: *sdl.gpu.Buffer,
-    transfer_buffer: *sdl.gpu.TransferBuffer,
+    // GPU Resources
     pipeline: *sdl.gpu.GraphicsPipeline,
-    white_texture: *const anyopaque, // Will be Texture type
+    depth_texture: *?sdl.gpu.Texture,
+    white_texture: *const Texture,
     sampler: *sdl.gpu.Sampler,
+
+    // Window dimensions
+    window_width: *u32,
+    window_height: *u32,
+
+    /// Get window dimensions as floats
+    pub fn getWindowSize(self: *const Context) struct { width: f32, height: f32 } {
+        return .{
+            .width = @floatFromInt(self.window_width.*),
+            .height = @floatFromInt(self.window_height.*),
+        };
+    }
 };
 
 /// Helper to create an Application from a concrete type

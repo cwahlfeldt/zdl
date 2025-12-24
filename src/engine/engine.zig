@@ -4,11 +4,10 @@ const sdl = @import("sdl3");
 const Application = @import("application.zig").Application;
 const Context = @import("application.zig").Context;
 const Input = @import("../input/input.zig").Input;
-const Camera2D = @import("../camera.zig").Camera2D;
-const sprite = @import("../renderer/sprite.zig");
-const SpriteBatch = sprite.SpriteBatch;
-const SpriteVertex = sprite.SpriteVertex;
-const MVPUniforms = @import("../gpu/uniforms.zig").MVPUniforms;
+const Camera = @import("../camera.zig").Camera;
+const Mesh = @import("../resources/mesh.zig").Mesh;
+const Vertex3D = @import("../resources/mesh.zig").Vertex3D;
+const Uniforms = @import("../gpu/uniforms.zig").Uniforms;
 const Texture = @import("../resources/texture.zig").Texture;
 const Audio = @import("../audio/audio.zig").Audio;
 
@@ -28,11 +27,36 @@ const ShaderConfig = if (is_macos) struct {
     const fragment_entry = "main";
 };
 
+/// RGBA color with floating point components (0.0 to 1.0)
+pub const Color = struct {
+    r: f32,
+    g: f32,
+    b: f32,
+    a: f32,
+
+    pub fn init(r: f32, g: f32, b: f32, a: f32) Color {
+        return .{ .r = r, .g = g, .b = b, .a = a };
+    }
+
+    pub fn rgb(r: f32, g: f32, b: f32) Color {
+        return .{ .r = r, .g = g, .b = b, .a = 1.0 };
+    }
+
+    pub fn white() Color {
+        return .{ .r = 1.0, .g = 1.0, .b = 1.0, .a = 1.0 };
+    }
+
+    pub fn black() Color {
+        return .{ .r = 0.0, .g = 0.0, .b = 0.0, .a = 1.0 };
+    }
+};
+
 pub const EngineConfig = struct {
     window_title: [:0]const u8 = "ZDL Game",
-    window_width: u32 = 960,
-    window_height: u32 = 540,
+    window_width: u32 = 1280,
+    window_height: u32 = 720,
     target_fps: u32 = 60,
+    clear_color: Color = .{ .r = 0.1, .g = 0.1, .b = 0.15, .a = 1.0 },
 };
 
 /// Main engine that manages SDL, GPU, and the game loop
@@ -41,19 +65,30 @@ pub const Engine = struct {
     window: sdl.video.Window,
     device: sdl.gpu.Device,
     input: Input,
-    camera: Camera2D,
-    sprite_batch: SpriteBatch,
+    camera: Camera,
     audio: Audio,
 
     // GPU Resources
-    vertex_buffer: sdl.gpu.Buffer,
-    transfer_buffer: sdl.gpu.TransferBuffer,
     pipeline: sdl.gpu.GraphicsPipeline,
+    depth_texture: ?sdl.gpu.Texture,
     white_texture: Texture,
     sampler: sdl.gpu.Sampler,
 
+    // Window state
+    window_width: u32,
+    window_height: u32,
+    clear_color: Color,
+
     // Timing
     last_time: u64,
+    target_frame_time: u64,
+
+    // FPS Counter
+    show_fps: bool,
+    fps_frame_count: u32,
+    fps_last_update: u64,
+    fps_current: f32,
+    original_window_title: [:0]const u8,
 
     pub fn init(allocator: std.mem.Allocator, config: EngineConfig) !Engine {
         try sdl.init(.{ .video = true });
@@ -79,30 +114,13 @@ pub const Engine = struct {
         var input = Input.init(allocator);
         errdefer input.deinit();
 
-        const camera = Camera2D.init(
+        const camera = Camera.init(
             @floatFromInt(config.window_width),
             @floatFromInt(config.window_height),
         );
 
-        var sprite_batch = SpriteBatch.init(allocator, 1000);
-        errdefer sprite_batch.deinit();
-
         var audio = try Audio.init(allocator);
         errdefer audio.deinit();
-
-        // Create GPU resources
-        const max_vertices = 6000;
-        const vertex_buffer = try device.createBuffer(.{
-            .usage = .{ .vertex = true },
-            .size = @sizeOf(SpriteVertex) * max_vertices,
-        });
-        errdefer device.releaseBuffer(vertex_buffer);
-
-        const transfer_buffer = try device.createTransferBuffer(.{
-            .usage = .upload,
-            .size = @sizeOf(SpriteVertex) * max_vertices,
-        });
-        errdefer device.releaseTransferBuffer(transfer_buffer);
 
         // Load shaders
         const vertex_code = try std.fs.cwd().readFileAlloc(
@@ -146,44 +164,19 @@ pub const Engine = struct {
         });
         defer device.releaseShader(fragment_shader);
 
-        const vertex_buffer_desc = sdl.gpu.VertexBufferDescription{
-            .slot = 0,
-            .pitch = @sizeOf(SpriteVertex),
-            .input_rate = .vertex,
-            .instance_step_rate = 0,
-        };
-
-        const vertex_attributes = [_]sdl.gpu.VertexAttribute{
-            .{
-                .location = 0,
-                .buffer_slot = 0,
-                .format = .f32x3,
-                .offset = 0,
-            },
-            .{
-                .location = 1,
-                .buffer_slot = 0,
-                .format = .f32x4,
-                .offset = @offsetOf(SpriteVertex, "r"),
-            },
-            .{
-                .location = 2,
-                .buffer_slot = 0,
-                .format = .f32x2,
-                .offset = @offsetOf(SpriteVertex, "u"),
-            },
-        };
+        const vertex_buffer_desc = Mesh.getVertexBufferDesc();
+        const vertex_attributes = Mesh.getVertexAttributes();
 
         const color_target_desc = sdl.gpu.ColorTargetDescription{
             .format = try device.getSwapchainTextureFormat(window),
             .blend_state = .{
-                .enable_blend = true,
+                .enable_blend = false,
                 .color_blend = .add,
                 .alpha_blend = .add,
-                .source_color = .src_alpha,
-                .source_alpha = .src_alpha,
-                .destination_color = .one_minus_src_alpha,
-                .destination_alpha = .one_minus_src_alpha,
+                .source_color = .one,
+                .source_alpha = .one,
+                .destination_color = .zero,
+                .destination_alpha = .zero,
                 .enable_color_write_mask = true,
                 .color_write_mask = .{ .red = true, .green = true, .blue = true, .alpha = true },
             },
@@ -197,21 +190,43 @@ pub const Engine = struct {
                 .vertex_buffer_descriptions = &[_]sdl.gpu.VertexBufferDescription{vertex_buffer_desc},
                 .vertex_attributes = &vertex_attributes,
             },
+            .rasterizer_state = .{
+                .cull_mode = .back,
+                .front_face = .clockwise,
+            },
             .target_info = .{
                 .color_target_descriptions = &[_]sdl.gpu.ColorTargetDescription{color_target_desc},
-                .depth_stencil_format = null,
+                .depth_stencil_format = .depth32_float,
+            },
+            .depth_stencil_state = .{
+                .enable_depth_test = true,
+                .enable_depth_write = true,
+                .compare = .less,
+                .enable_stencil_test = false,
             },
         });
         errdefer device.releaseGraphicsPipeline(pipeline);
+
+        // Create depth texture
+        const depth_texture = try device.createTexture(.{
+            .texture_type = .two_dimensional,
+            .format = .depth32_float,
+            .width = config.window_width,
+            .height = config.window_height,
+            .layer_count_or_depth = 1,
+            .num_levels = 1,
+            .usage = .{ .depth_stencil_target = true },
+        });
+        errdefer device.releaseTexture(depth_texture);
 
         var mutable_device = device;
         const white_texture = try Texture.createColored(&mutable_device, 1, 1, .{ 255, 255, 255, 255 });
         errdefer white_texture.deinit(&mutable_device);
 
         const sampler = try device.createSampler(.{
-            .min_filter = .nearest,
-            .mag_filter = .nearest,
-            .mipmap_mode = .nearest,
+            .min_filter = .linear,
+            .mag_filter = .linear,
+            .mipmap_mode = .linear,
             .address_mode_u = .repeat,
             .address_mode_v = .repeat,
             .address_mode_w = .repeat,
@@ -219,6 +234,7 @@ pub const Engine = struct {
         errdefer device.releaseSampler(sampler);
 
         const last_time = sdl.timer.getMillisecondsSinceInit();
+        const target_frame_time = 1000 / config.target_fps;
 
         return .{
             .allocator = allocator,
@@ -226,14 +242,21 @@ pub const Engine = struct {
             .device = device,
             .input = input,
             .camera = camera,
-            .sprite_batch = sprite_batch,
             .audio = audio,
-            .vertex_buffer = vertex_buffer,
-            .transfer_buffer = transfer_buffer,
             .pipeline = pipeline,
+            .depth_texture = depth_texture,
             .white_texture = white_texture,
             .sampler = sampler,
+            .window_width = config.window_width,
+            .window_height = config.window_height,
+            .clear_color = config.clear_color,
             .last_time = last_time,
+            .target_frame_time = target_frame_time,
+            .show_fps = false,
+            .fps_frame_count = 0,
+            .fps_last_update = last_time,
+            .fps_current = 0.0,
+            .original_window_title = config.window_title,
         };
     }
 
@@ -242,10 +265,8 @@ pub const Engine = struct {
         self.device.releaseSampler(self.sampler);
         var mutable_device = self.device;
         self.white_texture.deinit(&mutable_device);
+        if (self.depth_texture) |dt| self.device.releaseTexture(dt);
         self.device.releaseGraphicsPipeline(self.pipeline);
-        self.device.releaseTransferBuffer(self.transfer_buffer);
-        self.device.releaseBuffer(self.vertex_buffer);
-        self.sprite_batch.deinit();
         self.input.deinit();
         self.device.deinit();
         self.window.deinit();
@@ -258,15 +279,15 @@ pub const Engine = struct {
             .allocator = self.allocator,
             .input = &self.input,
             .camera = &self.camera,
-            .sprite_batch = &self.sprite_batch,
             .audio = &self.audio,
             .device = &self.device,
             .window = &self.window,
-            .vertex_buffer = &self.vertex_buffer,
-            .transfer_buffer = &self.transfer_buffer,
             .pipeline = &self.pipeline,
+            .depth_texture = &self.depth_texture,
             .white_texture = &self.white_texture,
             .sampler = &self.sampler,
+            .window_width = &self.window_width,
+            .window_height = &self.window_height,
         };
 
         try app.init(&ctx);
@@ -274,9 +295,9 @@ pub const Engine = struct {
 
         var running = true;
         while (running) {
-            const current_time = sdl.timer.getMillisecondsSinceInit();
-            const delta_time = @as(f32, @floatFromInt(current_time - self.last_time)) / 1000.0;
-            self.last_time = current_time;
+            const frame_start = sdl.timer.getMillisecondsSinceInit();
+            const delta_time = @as(f32, @floatFromInt(frame_start - self.last_time)) / 1000.0;
+            self.last_time = frame_start;
 
             self.input.update();
 
@@ -285,6 +306,14 @@ pub const Engine = struct {
                     .quit => running = false,
                     .key_down => |key_event| {
                         if (key_event.scancode == .escape) running = false;
+                        if (key_event.scancode == .func3) {
+                            self.show_fps = !self.show_fps;
+                            std.debug.print("FPS counter: {s}\n", .{if (self.show_fps) "ON" else "OFF"});
+
+                            if (!self.show_fps) {
+                                self.window.setTitle(self.original_window_title) catch {};
+                            }
+                        }
                         try self.input.processEvent(event);
                     },
                     .key_up => try self.input.processEvent(event),
@@ -292,100 +321,142 @@ pub const Engine = struct {
                 }
             }
 
-            try app.update(&ctx, delta_time);
+            // Update FPS counter
+            self.fps_frame_count += 1;
+            if (frame_start - self.fps_last_update >= 1000) {
+                self.fps_current = @as(f32, @floatFromInt(self.fps_frame_count)) * 1000.0 / @as(f32, @floatFromInt(frame_start - self.fps_last_update));
+                self.fps_frame_count = 0;
+                self.fps_last_update = frame_start;
 
-            self.sprite_batch.clear();
+                if (self.show_fps) {
+                    var title_buffer: [256]u8 = undefined;
+                    const title = std.fmt.bufPrintZ(&title_buffer, "ZDL - FPS: {d:.1}", .{self.fps_current}) catch "ZDL";
+                    self.window.setTitle(title) catch {};
+                }
+            }
+
+            try app.update(&ctx, delta_time);
             try app.render(&ctx);
 
-            // try self.renderFrame();
+            // Frame rate limiting
+            const frame_end = sdl.timer.getMillisecondsSinceInit();
+            const frame_time = frame_end - frame_start;
+            if (frame_time < self.target_frame_time) {
+                sdl.timer.delayMilliseconds(@intCast(self.target_frame_time - frame_time));
+            }
         }
     }
 
-    /// Get the sprite batch for rendering
-    pub fn getSpriteBatch(self: *Engine) *SpriteBatch {
-        return &self.sprite_batch;
-    }
-
-    fn renderFrame(self: *Engine) !void {
-        // 1. Acquire the SINGLE command buffer for this frame
+    /// Begin a render frame - returns command buffer and render pass if successful
+    pub fn beginFrame(self: *Engine) !?RenderFrame {
         const cmd = try self.device.acquireCommandBuffer();
 
-        // 2. Handle Vertex Upload (ON THE SAME COMMAND BUFFER)
-        const vertices = self.sprite_batch.getVertices();
-        if (vertices.len > 0) {
-            // Map/Unmap transfer buffer (CPU side)
-            const data = try self.device.mapTransferBuffer(self.transfer_buffer, false);
-            const vertex_data = @as([*]SpriteVertex, @ptrCast(@alignCast(data)));
-            for (vertices, 0..) |v, i| {
-                vertex_data[i] = v;
-            }
-            self.device.unmapTransferBuffer(self.transfer_buffer);
-
-            // Encode Copy Pass (GPU side)
-            const copy_pass = cmd.beginCopyPass();
-            const size: u32 = @intCast(@sizeOf(SpriteVertex) * vertices.len);
-            copy_pass.uploadToBuffer(
-                .{ .transfer_buffer = self.transfer_buffer, .offset = 0 },
-                .{ .buffer = self.vertex_buffer, .offset = 0, .size = size },
-                true,
-            );
-            copy_pass.end();
-            // The GPU now guarantees this copy finishes before subsequent commands on 'cmd' read this buffer.
-        }
-
-        // 3. Acquire Swapchain
         const swapchain_texture_opt, const width, const height = try cmd.waitAndAcquireSwapchainTexture(self.window);
         const swapchain_texture = swapchain_texture_opt orelse {
-            try cmd.submit(); // Submit whatever we did (like uploads) even if we don't draw
-            return;
+            try cmd.submit();
+            return null;
         };
 
-        // 4. Update Camera
-        const w_f32: f32 = @floatFromInt(width);
-        const h_f32: f32 = @floatFromInt(height);
-        if (self.camera.width != w_f32 or self.camera.height != h_f32) {
+        // Handle window resize
+        if (width != self.window_width or height != self.window_height) {
+            self.window_width = width;
+            self.window_height = height;
+
+            const w_f32: f32 = @floatFromInt(width);
+            const h_f32: f32 = @floatFromInt(height);
             self.camera.resize(w_f32, h_f32);
+
+            // Recreate depth texture
+            if (self.depth_texture) |dt| self.device.releaseTexture(dt);
+            self.depth_texture = try self.device.createTexture(.{
+                .texture_type = .two_dimensional,
+                .format = .depth32_float,
+                .width = width,
+                .height = height,
+                .layer_count_or_depth = 1,
+                .num_levels = 1,
+                .usage = .{ .depth_stencil_target = true },
+            });
         }
 
         const color_target = sdl.gpu.ColorTargetInfo{
             .texture = swapchain_texture,
-            .clear_color = .{ .r = 0.1, .g = 0.1, .b = 0.1, .a = 1.0 },
+            .clear_color = .{
+                .r = self.clear_color.r,
+                .g = self.clear_color.g,
+                .b = self.clear_color.b,
+                .a = self.clear_color.a,
+            },
             .load = .clear,
             .store = .store,
         };
 
-        // 5. Render Pass
-        {
-            const pass = cmd.beginRenderPass(&.{color_target}, null);
-            defer pass.end();
+        const depth_target = sdl.gpu.DepthStencilTargetInfo{
+            .texture = self.depth_texture.?,
+            .clear_depth = 1.0,
+            .clear_stencil = 0,
+            .load = .clear,
+            .store = .do_not_care,
+            .stencil_load = .do_not_care,
+            .stencil_store = .do_not_care,
+            .cycle = true,
+        };
 
-            pass.bindGraphicsPipeline(self.pipeline);
+        const pass = cmd.beginRenderPass(&.{color_target}, depth_target);
 
-            pass.bindFragmentSamplers(0, &[_]sdl.gpu.TextureSamplerBinding{.{
-                .texture = self.white_texture.gpu_texture,
-                .sampler = self.sampler,
-            }});
+        return RenderFrame{
+            .cmd = cmd,
+            .pass = pass,
+            .engine = self,
+        };
+    }
+};
 
-            pass.bindVertexBuffers(0, &[_]sdl.gpu.BufferBinding{.{
-                .buffer = self.vertex_buffer,
-                .offset = 0,
-            }});
+/// Represents an active render frame
+pub const RenderFrame = struct {
+    cmd: sdl.gpu.CommandBuffer,
+    pass: sdl.gpu.RenderPass,
+    engine: *Engine,
 
-            // --- FIX 1: Push Uniforms INSIDE the pass ---
-            const mvp = self.camera.getViewProjectionMatrix();
-            const uniform_data = MVPUniforms.init(mvp);
-            // Ensure MVPUniforms is an 'extern struct' in uniforms.zig!
-            const uniform_bytes = std.mem.asBytes(&uniform_data);
+    /// End the render pass and submit the frame
+    pub fn end(self: *RenderFrame) !void {
+        self.pass.end();
+        try self.cmd.submit();
+    }
 
-            cmd.pushVertexUniformData(1, uniform_bytes);
-            // --------------------------------------------
+    /// Bind the default pipeline
+    pub fn bindPipeline(self: *RenderFrame) void {
+        self.pass.bindGraphicsPipeline(self.engine.pipeline);
+    }
 
-            const vertex_count = self.sprite_batch.getVertexCount();
-            if (vertex_count > 0) {
-                pass.drawPrimitives(vertex_count, 1, 0, 0);
-            }
-        }
+    /// Bind default texture and sampler
+    pub fn bindDefaultTexture(self: *RenderFrame) void {
+        self.pass.bindFragmentSamplers(0, &[_]sdl.gpu.TextureSamplerBinding{.{
+            .texture = self.engine.white_texture.gpu_texture,
+            .sampler = self.engine.sampler,
+        }});
+    }
 
-        try cmd.submit();
+    /// Bind a specific texture
+    pub fn bindTexture(self: *RenderFrame, texture: Texture) void {
+        self.pass.bindFragmentSamplers(0, &[_]sdl.gpu.TextureSamplerBinding{.{
+            .texture = texture.gpu_texture,
+            .sampler = self.engine.sampler,
+        }});
+    }
+
+    /// Push uniforms for rendering
+    pub fn pushUniforms(self: *RenderFrame, uniforms: Uniforms) void {
+        self.cmd.pushVertexUniformData(1, std.mem.asBytes(&uniforms));
+    }
+
+    /// Draw a mesh
+    pub fn drawMesh(self: *RenderFrame, mesh: Mesh) void {
+        self.pass.bindVertexBuffers(0, &[_]sdl.gpu.BufferBinding{.{
+            .buffer = mesh.vertex_buffer.?,
+            .offset = 0,
+        }});
+        self.pass.bindIndexBuffer(.{ .buffer = mesh.index_buffer.?, .offset = 0 }, .indices_32bit);
+        self.pass.drawIndexedPrimitives(@intCast(mesh.indices.len), 1, 0, 0, 0);
     }
 };
