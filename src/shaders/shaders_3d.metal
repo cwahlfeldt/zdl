@@ -24,7 +24,7 @@ struct Uniforms {
 
 vertex Vertex3DOutput vertex_3d_main(
     Vertex3DInput in [[stage_in]],
-    constant Uniforms& uniforms [[buffer(1)]]
+    constant Uniforms& uniforms [[buffer(0)]]
 ) {
     Vertex3DOutput out;
 

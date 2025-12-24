@@ -38,7 +38,7 @@ pub const Application = struct {
 pub const Context = struct {
     allocator: std.mem.Allocator,
     input: *Input,
-    camera: *Camera2D,
+    camera: *Camera2D, // TODO: 3D camera
     sprite_batch: *SpriteBatch,
     audio: *Audio,
     device: *sdl.gpu.Device,

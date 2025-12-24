@@ -297,9 +297,7 @@ pub const Engine = struct {
             self.sprite_batch.clear();
             try app.render(&ctx);
 
-            try self.renderFrame();
-
-            sdl.timer.delayMilliseconds(10);
+            // try self.renderFrame();
         }
     }
 
@@ -309,9 +307,13 @@ pub const Engine = struct {
     }
 
     fn renderFrame(self: *Engine) !void {
-        const vertices = self.sprite_batch.getVertices();
+        // 1. Acquire the SINGLE command buffer for this frame
+        const cmd = try self.device.acquireCommandBuffer();
 
+        // 2. Handle Vertex Upload (ON THE SAME COMMAND BUFFER)
+        const vertices = self.sprite_batch.getVertices();
         if (vertices.len > 0) {
+            // Map/Unmap transfer buffer (CPU side)
             const data = try self.device.mapTransferBuffer(self.transfer_buffer, false);
             const vertex_data = @as([*]SpriteVertex, @ptrCast(@alignCast(data)));
             for (vertices, 0..) |v, i| {
@@ -319,29 +321,26 @@ pub const Engine = struct {
             }
             self.device.unmapTransferBuffer(self.transfer_buffer);
 
-            const upload_cmd = try self.device.acquireCommandBuffer();
-            {
-                const copy_pass = upload_cmd.beginCopyPass();
-                defer copy_pass.end();
-
-                const size: u32 = @intCast(@sizeOf(SpriteVertex) * vertices.len);
-                copy_pass.uploadToBuffer(
-                    .{ .transfer_buffer = self.transfer_buffer, .offset = 0 },
-                    .{ .buffer = self.vertex_buffer, .offset = 0, .size = size },
-                    false,
-                );
-            }
-            try upload_cmd.submit();
+            // Encode Copy Pass (GPU side)
+            const copy_pass = cmd.beginCopyPass();
+            const size: u32 = @intCast(@sizeOf(SpriteVertex) * vertices.len);
+            copy_pass.uploadToBuffer(
+                .{ .transfer_buffer = self.transfer_buffer, .offset = 0 },
+                .{ .buffer = self.vertex_buffer, .offset = 0, .size = size },
+                true,
+            );
+            copy_pass.end();
+            // The GPU now guarantees this copy finishes before subsequent commands on 'cmd' read this buffer.
         }
 
-        const cmd = try self.device.acquireCommandBuffer();
-
+        // 3. Acquire Swapchain
         const swapchain_texture_opt, const width, const height = try cmd.waitAndAcquireSwapchainTexture(self.window);
         const swapchain_texture = swapchain_texture_opt orelse {
-            try cmd.submit();
+            try cmd.submit(); // Submit whatever we did (like uploads) even if we don't draw
             return;
         };
 
+        // 4. Update Camera
         const w_f32: f32 = @floatFromInt(width);
         const h_f32: f32 = @floatFromInt(height);
         if (self.camera.width != w_f32 or self.camera.height != h_f32) {
@@ -355,12 +354,7 @@ pub const Engine = struct {
             .store = .store,
         };
 
-        const mvp = self.camera.getViewProjectionMatrix();
-        const uniform_data = MVPUniforms.init(mvp);
-        const uniform_bytes = std.mem.asBytes(&uniform_data);
-
-        cmd.pushVertexUniformData(0, uniform_bytes);
-
+        // 5. Render Pass
         {
             const pass = cmd.beginRenderPass(&.{color_target}, null);
             defer pass.end();
@@ -376,6 +370,15 @@ pub const Engine = struct {
                 .buffer = self.vertex_buffer,
                 .offset = 0,
             }});
+
+            // --- FIX 1: Push Uniforms INSIDE the pass ---
+            const mvp = self.camera.getViewProjectionMatrix();
+            const uniform_data = MVPUniforms.init(mvp);
+            // Ensure MVPUniforms is an 'extern struct' in uniforms.zig!
+            const uniform_bytes = std.mem.asBytes(&uniform_data);
+
+            cmd.pushVertexUniformData(1, uniform_bytes);
+            // --------------------------------------------
 
             const vertex_count = self.sprite_batch.getVertexCount();
             if (vertex_count > 0) {

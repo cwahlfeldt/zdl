@@ -16,7 +16,6 @@ const Texture = engine.Texture;
 
 const is_macos = builtin.os.tag == .macos;
 
-/// 3D uniforms for model-view-projection
 const Uniforms3D = struct {
     model: Mat4,
     view: Mat4,
@@ -166,6 +165,10 @@ pub const Cube3D = struct {
                 .vertex_buffer_descriptions = &[_]sdl.gpu.VertexBufferDescription{vertex_buffer_desc},
                 .vertex_attributes = &vertex_attributes,
             },
+            .rasterizer_state = .{
+                .cull_mode = .back,
+                .front_face = .clockwise, // Y-flip in projection reverses winding
+            },
             .target_info = .{
                 .color_target_descriptions = &[_]sdl.gpu.ColorTargetDescription{color_target_desc},
                 .depth_stencil_format = .depth32_float,
@@ -264,19 +267,11 @@ pub const Cube3D = struct {
             .clear_depth = 1.0,
             .clear_stencil = 0,
             .load = .clear,
-            .store = .store,
+            .store = .do_not_care, // Don't need to preserve depth after rendering
             .stencil_load = .do_not_care,
             .stencil_store = .do_not_care,
-            .cycle = false,
+            .cycle = true, // Allow GPU to cycle depth buffer for proper synchronization
         };
-
-        // Set uniforms for cube (for now just use cube's transform)
-        const uniforms = Uniforms3D{
-            .model = self.cube_transform.getMatrix(),
-            .view = self.camera.getViewMatrix(),
-            .projection = self.camera.getProjectionMatrix(),
-        };
-        cmd.pushVertexUniformData(0, std.mem.asBytes(&uniforms));
 
         {
             const pass = cmd.beginRenderPass(&.{color_target}, depth_target);
@@ -287,22 +282,27 @@ pub const Cube3D = struct {
                 .texture = self.texture.?.gpu_texture,
                 .sampler = self.sampler.?,
             }});
+            // --- FIX: Push Uniforms INSIDE the Render Pass ---
+            // Calculate matrices immediately before drawing
+            const uniforms = Uniforms3D{
+                .model = self.cube_transform.getMatrix(),
+                .view = self.camera.getViewMatrix(),
+                .projection = self.camera.getProjectionMatrix(),
+            };
+
+            // Note: We use 'cmd' here inside the scope.
+            // The data must be pushed while the render pass is active.
+            cmd.pushVertexUniformData(1, std.mem.asBytes(&uniforms));
 
             // Draw cube
-            if (self.cube_mesh) |cube_mesh| {
-                if (cube_mesh.vertex_buffer) |cube_vb| {
-                    if (cube_mesh.index_buffer) |cube_ib| {
-                        pass.bindVertexBuffers(0, &[_]sdl.gpu.BufferBinding{.{
-                            .buffer = cube_vb,
-                            .offset = 0,
-                        }});
-                        pass.bindIndexBuffer(.{
-                            .buffer = cube_ib,
-                            .offset = 0,
-                        }, .indices_32bit);
-                        pass.drawIndexedPrimitives(@intCast(cube_mesh.indices.len), 1, 0, 0, 0);
-                    }
-                }
+            if (self.cube_mesh) |mesh| {
+                pass.bindVertexBuffers(0, &[_]sdl.gpu.BufferBinding{.{
+                    .buffer = mesh.vertex_buffer.?,
+                    .offset = 0,
+                }});
+                pass.bindIndexBuffer(.{ .buffer = mesh.index_buffer.?, .offset = 0 }, .indices_32bit);
+
+                pass.drawIndexedPrimitives(@intCast(mesh.indices.len), 1, 0, 0, 0);
             }
         }
 
