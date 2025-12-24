@@ -11,6 +11,10 @@ const Uniforms = @import("../gpu/uniforms.zig").Uniforms;
 const Texture = @import("../resources/texture.zig").Texture;
 const Audio = @import("../audio/audio.zig").Audio;
 
+// ECS imports
+const Scene = @import("../ecs/scene.zig").Scene;
+const RenderSystem = @import("../ecs/systems/render_system.zig").RenderSystem;
+
 // Platform-specific shader configuration
 const is_macos = builtin.os.tag == .macos;
 const ShaderConfig = if (is_macos) struct {
@@ -337,6 +341,79 @@ pub const Engine = struct {
 
             try app.update(&ctx, delta_time);
             try app.render(&ctx);
+
+            // Frame rate limiting
+            const frame_end = sdl.timer.getMillisecondsSinceInit();
+            const frame_time = frame_end - frame_start;
+            if (frame_time < self.target_frame_time) {
+                sdl.timer.delayMilliseconds(@intCast(self.target_frame_time - frame_time));
+            }
+        }
+    }
+
+    /// Run the game loop with a scene and optional update callback.
+    /// The scene handles all entity management and rendering automatically.
+    pub fn runScene(
+        self: *Engine,
+        scene: *Scene,
+        update_fn: ?*const fn (*Scene, *Input, f32) anyerror!void,
+    ) !void {
+        var running = true;
+        while (running) {
+            const frame_start = sdl.timer.getMillisecondsSinceInit();
+            const delta_time = @as(f32, @floatFromInt(frame_start - self.last_time)) / 1000.0;
+            self.last_time = frame_start;
+
+            self.input.update();
+
+            while (sdl.events.poll()) |event| {
+                switch (event) {
+                    .quit => running = false,
+                    .key_down => |key_event| {
+                        if (key_event.scancode == .escape) running = false;
+                        if (key_event.scancode == .func3) {
+                            self.show_fps = !self.show_fps;
+                            std.debug.print("FPS counter: {s}\n", .{if (self.show_fps) "ON" else "OFF"});
+
+                            if (!self.show_fps) {
+                                self.window.setTitle(self.original_window_title) catch {};
+                            }
+                        }
+                        try self.input.processEvent(event);
+                    },
+                    .key_up => try self.input.processEvent(event),
+                    else => {},
+                }
+            }
+
+            // Update FPS counter
+            self.fps_frame_count += 1;
+            if (frame_start - self.fps_last_update >= 1000) {
+                self.fps_current = @as(f32, @floatFromInt(self.fps_frame_count)) * 1000.0 / @as(f32, @floatFromInt(frame_start - self.fps_last_update));
+                self.fps_frame_count = 0;
+                self.fps_last_update = frame_start;
+
+                if (self.show_fps) {
+                    var title_buffer: [256]u8 = undefined;
+                    const title = std.fmt.bufPrintZ(&title_buffer, "ZDL - FPS: {d:.1}", .{self.fps_current}) catch "ZDL";
+                    self.window.setTitle(title) catch {};
+                }
+            }
+
+            // Call user update function if provided
+            if (update_fn) |update| {
+                try update(scene, &self.input, delta_time);
+            }
+
+            // Update world transforms
+            scene.updateWorldTransforms();
+
+            // Render scene
+            if (try self.beginFrame()) |frame_value| {
+                var frame = frame_value;
+                RenderSystem.render(scene, &frame);
+                try frame.end();
+            }
 
             // Frame rate limiting
             const frame_end = sdl.timer.getMillisecondsSinceInit();

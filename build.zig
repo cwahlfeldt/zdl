@@ -36,7 +36,20 @@ pub fn build(b: *std.Build) void {
     cube3d.root_module.addImport("engine", engine_module);
     b.installArtifact(cube3d);
 
-    // Default run step
+    // Build Scene Demo example
+    const scene_demo = b.addExecutable(.{
+        .name = "scene_demo",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("examples/scene_demo/main.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    scene_demo.root_module.addImport("sdl3", sdl3.module("sdl3"));
+    scene_demo.root_module.addImport("engine", engine_module);
+    b.installArtifact(scene_demo);
+
+    // Default run step (Cube3D)
     const run_cube3d = b.addRunArtifact(cube3d);
     run_cube3d.step.dependOn(b.getInstallStep());
     if (b.args) |args| {
@@ -44,6 +57,15 @@ pub fn build(b: *std.Build) void {
     }
     const run_step = b.step("run", "Run Cube3D example");
     run_step.dependOn(&run_cube3d.step);
+
+    // Scene Demo run step
+    const run_scene_demo = b.addRunArtifact(scene_demo);
+    run_scene_demo.step.dependOn(b.getInstallStep());
+    if (b.args) |args| {
+        run_scene_demo.addArgs(args);
+    }
+    const run_scene_step = b.step("run-scene", "Run Scene Demo example");
+    run_scene_step.dependOn(&run_scene_demo.step);
 }
 
 /// Compile GLSL shaders to SPIR-V using glslangValidator

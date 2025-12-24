@@ -35,3 +35,13 @@ pub const Texture = @import("resources/texture.zig").Texture;
 pub const audio = @import("audio/audio.zig");
 pub const Audio = audio.Audio;
 pub const Sound = audio.Sound;
+
+// ECS (Entity Component System)
+pub const ecs = @import("ecs/ecs.zig");
+pub const Scene = ecs.Scene;
+pub const Entity = ecs.Entity;
+pub const TransformComponent = ecs.TransformComponent;
+pub const CameraComponent = ecs.CameraComponent;
+pub const MeshRendererComponent = ecs.MeshRendererComponent;
+pub const LightComponent = ecs.LightComponent;
+pub const LightType = ecs.LightType;
