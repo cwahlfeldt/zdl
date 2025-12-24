@@ -9,50 +9,50 @@ const Vec2 = @import("../math/vec2.zig").Vec2;
 pub fn createCube(allocator: std.mem.Allocator) !Mesh {
     const white = [4]f32{ 1.0, 1.0, 1.0, 1.0 };
 
-    // 24 vertices (4 per face) for proper normals
+    // 24 vertices (4 per face)
     const vertices = [_]Vertex3D{
-        // Front face (Z+)
-        Vertex3D.init(Vec3.init(-0.5, -0.5, 0.5), Vec3.init(0, 0, 1), Vec2.init(0, 1), white),
-        Vertex3D.init(Vec3.init(0.5, -0.5, 0.5), Vec3.init(0, 0, 1), Vec2.init(1, 1), white),
-        Vertex3D.init(Vec3.init(0.5, 0.5, 0.5), Vec3.init(0, 0, 1), Vec2.init(1, 0), white),
-        Vertex3D.init(Vec3.init(-0.5, 0.5, 0.5), Vec3.init(0, 0, 1), Vec2.init(0, 0), white),
+        // Front (Z+) - Normal: 0, 0, 1
+        Vertex3D.init(Vec3.init(-0.5, -0.5, 0.5), Vec3.init(0, 0, 1), Vec2.init(0, 1), white), // 0
+        Vertex3D.init(Vec3.init(0.5, -0.5, 0.5), Vec3.init(0, 0, 1), Vec2.init(1, 1), white), // 1
+        Vertex3D.init(Vec3.init(0.5, 0.5, 0.5), Vec3.init(0, 0, 1), Vec2.init(1, 0), white), // 2
+        Vertex3D.init(Vec3.init(-0.5, 0.5, 0.5), Vec3.init(0, 0, 1), Vec2.init(0, 0), white), // 3
 
-        // Back face (Z-)
-        Vertex3D.init(Vec3.init(0.5, -0.5, -0.5), Vec3.init(0, 0, -1), Vec2.init(0, 1), white),
-        Vertex3D.init(Vec3.init(-0.5, -0.5, -0.5), Vec3.init(0, 0, -1), Vec2.init(1, 1), white),
-        Vertex3D.init(Vec3.init(-0.5, 0.5, -0.5), Vec3.init(0, 0, -1), Vec2.init(1, 0), white),
-        Vertex3D.init(Vec3.init(0.5, 0.5, -0.5), Vec3.init(0, 0, -1), Vec2.init(0, 0), white),
+        // Back (Z-) - Normal: 0, 0, -1
+        Vertex3D.init(Vec3.init(0.5, -0.5, -0.5), Vec3.init(0, 0, -1), Vec2.init(0, 1), white), // 4
+        Vertex3D.init(Vec3.init(-0.5, -0.5, -0.5), Vec3.init(0, 0, -1), Vec2.init(1, 1), white), // 5
+        Vertex3D.init(Vec3.init(-0.5, 0.5, -0.5), Vec3.init(0, 0, -1), Vec2.init(1, 0), white), // 6
+        Vertex3D.init(Vec3.init(0.5, 0.5, -0.5), Vec3.init(0, 0, -1), Vec2.init(0, 0), white), // 7
 
-        // Top face (Y+)
-        Vertex3D.init(Vec3.init(-0.5, 0.5, 0.5), Vec3.init(0, 1, 0), Vec2.init(0, 1), white),
-        Vertex3D.init(Vec3.init(0.5, 0.5, 0.5), Vec3.init(0, 1, 0), Vec2.init(1, 1), white),
-        Vertex3D.init(Vec3.init(0.5, 0.5, -0.5), Vec3.init(0, 1, 0), Vec2.init(1, 0), white),
-        Vertex3D.init(Vec3.init(-0.5, 0.5, -0.5), Vec3.init(0, 1, 0), Vec2.init(0, 0), white),
+        // Top (Y+) - Normal: 0, 1, 0
+        Vertex3D.init(Vec3.init(-0.5, 0.5, 0.5), Vec3.init(0, 1, 0), Vec2.init(0, 1), white), // 8
+        Vertex3D.init(Vec3.init(0.5, 0.5, 0.5), Vec3.init(0, 1, 0), Vec2.init(1, 1), white), // 9
+        Vertex3D.init(Vec3.init(0.5, 0.5, -0.5), Vec3.init(0, 1, 0), Vec2.init(1, 0), white), // 10
+        Vertex3D.init(Vec3.init(-0.5, 0.5, -0.5), Vec3.init(0, 1, 0), Vec2.init(0, 0), white), // 11
 
-        // Bottom face (Y-)
-        Vertex3D.init(Vec3.init(-0.5, -0.5, -0.5), Vec3.init(0, -1, 0), Vec2.init(0, 1), white),
-        Vertex3D.init(Vec3.init(0.5, -0.5, -0.5), Vec3.init(0, -1, 0), Vec2.init(1, 1), white),
-        Vertex3D.init(Vec3.init(0.5, -0.5, 0.5), Vec3.init(0, -1, 0), Vec2.init(1, 0), white),
-        Vertex3D.init(Vec3.init(-0.5, -0.5, 0.5), Vec3.init(0, -1, 0), Vec2.init(0, 0), white),
+        // Bottom (Y-) - Normal: 0, -1, 0
+        Vertex3D.init(Vec3.init(-0.5, -0.5, -0.5), Vec3.init(0, -1, 0), Vec2.init(0, 1), white), // 12
+        Vertex3D.init(Vec3.init(0.5, -0.5, -0.5), Vec3.init(0, -1, 0), Vec2.init(1, 1), white), // 13
+        Vertex3D.init(Vec3.init(0.5, -0.5, 0.5), Vec3.init(0, -1, 0), Vec2.init(1, 0), white), // 14
+        Vertex3D.init(Vec3.init(-0.5, -0.5, 0.5), Vec3.init(0, -1, 0), Vec2.init(0, 0), white), // 15
 
-        // Right face (X+)
-        Vertex3D.init(Vec3.init(0.5, -0.5, 0.5), Vec3.init(1, 0, 0), Vec2.init(0, 1), white),
-        Vertex3D.init(Vec3.init(0.5, -0.5, -0.5), Vec3.init(1, 0, 0), Vec2.init(1, 1), white),
-        Vertex3D.init(Vec3.init(0.5, 0.5, -0.5), Vec3.init(1, 0, 0), Vec2.init(1, 0), white),
-        Vertex3D.init(Vec3.init(0.5, 0.5, 0.5), Vec3.init(1, 0, 0), Vec2.init(0, 0), white),
+        // Right (X+) - Normal: 1, 0, 0
+        Vertex3D.init(Vec3.init(0.5, -0.5, 0.5), Vec3.init(1, 0, 0), Vec2.init(0, 1), white), // 16
+        Vertex3D.init(Vec3.init(0.5, -0.5, -0.5), Vec3.init(1, 0, 0), Vec2.init(1, 1), white), // 17
+        Vertex3D.init(Vec3.init(0.5, 0.5, -0.5), Vec3.init(1, 0, 0), Vec2.init(1, 0), white), // 18
+        Vertex3D.init(Vec3.init(0.5, 0.5, 0.5), Vec3.init(1, 0, 0), Vec2.init(0, 0), white), // 19
 
-        // Left face (X-)
-        Vertex3D.init(Vec3.init(-0.5, -0.5, -0.5), Vec3.init(-1, 0, 0), Vec2.init(0, 1), white),
-        Vertex3D.init(Vec3.init(-0.5, -0.5, 0.5), Vec3.init(-1, 0, 0), Vec2.init(1, 1), white),
-        Vertex3D.init(Vec3.init(-0.5, 0.5, 0.5), Vec3.init(-1, 0, 0), Vec2.init(1, 0), white),
-        Vertex3D.init(Vec3.init(-0.5, 0.5, -0.5), Vec3.init(-1, 0, 0), Vec2.init(0, 0), white),
+        // Left (X-) - Normal: -1, 0, 0
+        Vertex3D.init(Vec3.init(-0.5, -0.5, -0.5), Vec3.init(-1, 0, 0), Vec2.init(0, 1), white), // 20
+        Vertex3D.init(Vec3.init(-0.5, -0.5, 0.5), Vec3.init(-1, 0, 0), Vec2.init(1, 1), white), // 21
+        Vertex3D.init(Vec3.init(-0.5, 0.5, 0.5), Vec3.init(-1, 0, 0), Vec2.init(1, 0), white), // 22
+        Vertex3D.init(Vec3.init(-0.5, 0.5, -0.5), Vec3.init(-1, 0, 0), Vec2.init(0, 0), white), // 23
     };
 
-    // 36 indices (6 faces * 2 triangles * 3 vertices)
+    // Every face now uses the exact same CCW pattern: 0->1->2 and 2->3->0
     const indices = [_]u32{
-        0,  1,  2,  2,  3,  0, // Front
-        4,  5,  6,  6,  7,  4, // Back
-        8,  9,  10, 10, 11, 8, // Top
+        0, 1, 2, 2, 3, 0, // Front
+        4, 5, 6, 6, 7, 4, // Back
+        8, 9, 10, 10, 11, 8, // Top
         12, 13, 14, 14, 15, 12, // Bottom
         16, 17, 18, 18, 19, 16, // Right
         20, 21, 22, 22, 23, 20, // Left

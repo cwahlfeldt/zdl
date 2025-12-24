@@ -84,77 +84,59 @@ pub const Mesh = struct {
 
     /// Upload mesh data to GPU
     pub fn upload(self: *Mesh, device: *sdl.gpu.Device) !void {
-        // Create vertex buffer
-        const vertex_size: u32 = @intCast(@sizeOf(Vertex3D) * self.vertices.len);
-        const vb = try device.createBuffer(.{
+        const vertex_byte_slice = std.mem.sliceAsBytes(self.vertices);
+        const index_byte_slice = std.mem.sliceAsBytes(self.indices);
+        const total_size = vertex_byte_slice.len + index_byte_slice.len;
+
+        // 1. Create GPU Buffers
+        self.vertex_buffer = try device.createBuffer(.{
             .usage = .{ .vertex = true },
-            .size = vertex_size,
+            .size = @intCast(vertex_byte_slice.len),
         });
-        errdefer device.releaseBuffer(vb);
+        errdefer device.releaseBuffer(self.vertex_buffer.?);
 
-        // Create index buffer
-        const index_size: u32 = @intCast(@sizeOf(u32) * self.indices.len);
-        const ib = try device.createBuffer(.{
+        self.index_buffer = try device.createBuffer(.{
             .usage = .{ .index = true },
-            .size = index_size,
+            .size = @intCast(index_byte_slice.len),
         });
-        errdefer device.releaseBuffer(ib);
+        errdefer device.releaseBuffer(self.index_buffer.?);
 
-        // Create transfer buffer large enough for both
-        const transfer_size = @max(vertex_size, index_size);
+        // 2. Map Transfer Buffer once for both data sets
         const transfer = try device.createTransferBuffer(.{
             .usage = .upload,
-            .size = transfer_size,
+            .size = @intCast(total_size),
         });
         defer device.releaseTransferBuffer(transfer);
 
-        // Upload vertices
-        {
-            const data = try device.mapTransferBuffer(transfer, false);
-            const vertex_data = @as([*]Vertex3D, @ptrCast(@alignCast(data)));
-            for (self.vertices, 0..) |v, i| {
-                vertex_data[i] = v;
-            }
-            device.unmapTransferBuffer(transfer);
+        const map_ptr = try device.mapTransferBuffer(transfer, false);
+        // Cast the raw pointer to a many-item slice for safe @memcpy
+        const dest_slice: []u8 = @as([*]u8, @ptrCast(map_ptr))[0..total_size];
 
-            const cmd = try device.acquireCommandBuffer();
-            {
-                const copy_pass = cmd.beginCopyPass();
-                defer copy_pass.end();
-                copy_pass.uploadToBuffer(
-                    .{ .transfer_buffer = transfer, .offset = 0 },
-                    .{ .buffer = vb, .offset = 0, .size = @intCast(vertex_size) },
-                    false,
-                );
-            }
-            try cmd.submit();
-        }
+        @memcpy(dest_slice[0..vertex_byte_slice.len], vertex_byte_slice);
+        @memcpy(dest_slice[vertex_byte_slice.len..], index_byte_slice);
 
-        // Upload indices
-        {
-            const data = try device.mapTransferBuffer(transfer, false);
-            const index_data = @as([*]u32, @ptrCast(@alignCast(data)));
-            for (self.indices, 0..) |idx, i| {
-                index_data[i] = idx;
-            }
-            device.unmapTransferBuffer(transfer);
+        device.unmapTransferBuffer(transfer);
 
-            const cmd = try device.acquireCommandBuffer();
-            {
-                const copy_pass = cmd.beginCopyPass();
-                defer copy_pass.end();
-                copy_pass.uploadToBuffer(
-                    .{ .transfer_buffer = transfer, .offset = 0 },
-                    .{ .buffer = ib, .offset = 0, .size = @intCast(index_size) },
-                    false,
-                );
-            }
-            try cmd.submit();
-        }
+        // 3. Batch the upload commands into a single submission
+        const cmd = try device.acquireCommandBuffer();
+        const copy_pass = cmd.beginCopyPass();
 
-        // Store buffers
-        self.vertex_buffer = vb;
-        self.index_buffer = ib;
+        // Copy Vertices from start of transfer buffer
+        copy_pass.uploadToBuffer(
+            .{ .transfer_buffer = transfer, .offset = 0 },
+            .{ .buffer = self.vertex_buffer.?, .offset = 0, .size = @intCast(vertex_byte_slice.len) },
+            false,
+        );
+
+        // Copy Indices from the offset in transfer buffer
+        copy_pass.uploadToBuffer(
+            .{ .transfer_buffer = transfer, .offset = @intCast(vertex_byte_slice.len) },
+            .{ .buffer = self.index_buffer.?, .offset = 0, .size = @intCast(index_byte_slice.len) },
+            false,
+        );
+
+        copy_pass.end();
+        try cmd.submit();
     }
 
     /// Get vertex buffer descriptor for pipeline creation
