@@ -1,10 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const sdl = @import("sdl3");
-const Application = @import("application.zig").Application;
-const Context = @import("application.zig").Context;
 const Input = @import("../input/input.zig").Input;
-const Camera = @import("../camera.zig").Camera;
 const Mesh = @import("../resources/mesh.zig").Mesh;
 const Vertex3D = @import("../resources/mesh.zig").Vertex3D;
 const Uniforms = @import("../gpu/uniforms.zig").Uniforms;
@@ -69,7 +66,6 @@ pub const Engine = struct {
     window: sdl.video.Window,
     device: sdl.gpu.Device,
     input: Input,
-    camera: Camera,
     audio: Audio,
 
     // GPU Resources
@@ -117,11 +113,6 @@ pub const Engine = struct {
 
         var input = Input.init(allocator);
         errdefer input.deinit();
-
-        const camera = Camera.init(
-            @floatFromInt(config.window_width),
-            @floatFromInt(config.window_height),
-        );
 
         var audio = try Audio.init(allocator);
         errdefer audio.deinit();
@@ -196,7 +187,7 @@ pub const Engine = struct {
             },
             .rasterizer_state = .{
                 .cull_mode = .back,
-                .front_face = .clockwise,
+                .front_face = .counter_clockwise,
             },
             .target_info = .{
                 .color_target_descriptions = &[_]sdl.gpu.ColorTargetDescription{color_target_desc},
@@ -245,7 +236,6 @@ pub const Engine = struct {
             .window = window,
             .device = device,
             .input = input,
-            .camera = camera,
             .audio = audio,
             .pipeline = pipeline,
             .depth_texture = depth_texture,
@@ -281,87 +271,6 @@ pub const Engine = struct {
     pub fn setMouseCapture(self: *Engine, captured: bool) void {
         self.input.mouse_captured = captured;
         sdl.mouse.setWindowRelativeMode(self.window, captured) catch {};
-    }
-
-    /// Run the game loop with the provided application
-    pub fn run(self: *Engine, app: Application) !void {
-        var ctx = Context{
-            .allocator = self.allocator,
-            .input = &self.input,
-            .camera = &self.camera,
-            .audio = &self.audio,
-            .device = &self.device,
-            .window = &self.window,
-            .pipeline = &self.pipeline,
-            .depth_texture = &self.depth_texture,
-            .white_texture = &self.white_texture,
-            .sampler = &self.sampler,
-            .window_width = &self.window_width,
-            .window_height = &self.window_height,
-        };
-
-        try app.init(&ctx);
-        defer app.deinit(&ctx);
-
-        var running = true;
-        while (running) {
-            const frame_start = sdl.timer.getMillisecondsSinceInit();
-            const delta_time = @as(f32, @floatFromInt(frame_start - self.last_time)) / 1000.0;
-            self.last_time = frame_start;
-
-            self.input.update();
-
-            while (sdl.events.poll()) |event| {
-                switch (event) {
-                    .quit => running = false,
-                    .key_down => |key_event| {
-                        if (key_event.scancode == .escape) {
-                            if (self.input.mouse_captured) {
-                                self.setMouseCapture(false);
-                            } else {
-                                running = false;
-                            }
-                        }
-                        if (key_event.scancode == .func3) {
-                            self.show_fps = !self.show_fps;
-                            std.debug.print("FPS counter: {s}\n", .{if (self.show_fps) "ON" else "OFF"});
-
-                            if (!self.show_fps) {
-                                self.window.setTitle(self.original_window_title) catch {};
-                            }
-                        }
-                        try self.input.processEvent(event);
-                    },
-                    .key_up => try self.input.processEvent(event),
-                    .mouse_motion, .mouse_button_down, .mouse_button_up => try self.input.processEvent(event),
-                    else => {},
-                }
-            }
-
-            // Update FPS counter
-            self.fps_frame_count += 1;
-            if (frame_start - self.fps_last_update >= 1000) {
-                self.fps_current = @as(f32, @floatFromInt(self.fps_frame_count)) * 1000.0 / @as(f32, @floatFromInt(frame_start - self.fps_last_update));
-                self.fps_frame_count = 0;
-                self.fps_last_update = frame_start;
-
-                if (self.show_fps) {
-                    var title_buffer: [256]u8 = undefined;
-                    const title = std.fmt.bufPrintZ(&title_buffer, "ZDL - FPS: {d:.1}", .{self.fps_current}) catch "ZDL";
-                    self.window.setTitle(title) catch {};
-                }
-            }
-
-            try app.update(&ctx, delta_time);
-            try app.render(&ctx);
-
-            // Frame rate limiting
-            const frame_end = sdl.timer.getMillisecondsSinceInit();
-            const frame_time = frame_end - frame_start;
-            if (frame_time < self.target_frame_time) {
-                sdl.timer.delayMilliseconds(@intCast(self.target_frame_time - frame_time));
-            }
-        }
     }
 
     /// Run the game loop with a scene and optional update callback.
@@ -459,10 +368,6 @@ pub const Engine = struct {
         if (width != self.window_width or height != self.window_height) {
             self.window_width = width;
             self.window_height = height;
-
-            const w_f32: f32 = @floatFromInt(width);
-            const h_f32: f32 = @floatFromInt(height);
-            self.camera.resize(w_f32, h_f32);
 
             // Recreate depth texture
             if (self.depth_texture) |dt| self.device.releaseTexture(dt);

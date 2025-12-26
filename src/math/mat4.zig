@@ -32,14 +32,14 @@ pub const Mat4 = struct {
     }
 
     /// Create perspective projection matrix
-    /// Vulkan/Metal compatible (uses [0, 1] depth range, Y-down clip space)
+    /// Uses [0, 1] depth range for Vulkan/Metal. SDL3 GPU handles Y-flip internally.
     pub fn perspective(fov_radians: f32, aspect: f32, near: f32, far: f32) Mat4 {
         var result = Mat4{ .data = [_]f32{0} ** 16 };
 
         const tan_half_fov = @tan(fov_radians / 2.0);
 
         result.data[0] = 1.0 / (aspect * tan_half_fov);
-        result.data[5] = -1.0 / tan_half_fov; // Negate for Y-down
+        result.data[5] = 1.0 / tan_half_fov;
         result.data[10] = far / (near - far);
         result.data[11] = -1.0;
         result.data[14] = -(far * near) / (far - near);

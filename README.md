@@ -33,7 +33,7 @@ zdl/
 │   ├── ecs/               # Entity Component System
 │   │   ├── scene.zig      # Scene container
 │   │   ├── entity.zig     # Entity handles
-│   │   ├── components/    # Transform, Camera, MeshRenderer, Light
+│   │   ├── components/    # Transform, Camera, MeshRenderer
 │   │   └── systems/       # Render system
 │   ├── input/             # Input system
 │   ├── resources/         # Mesh, Texture, Primitives
@@ -41,22 +41,18 @@ zdl/
 │   ├── gpu/               # GPU uniforms
 │   ├── shaders/           # GLSL shaders
 │   ├── audio/             # Audio system
-│   ├── camera.zig         # 3D camera
-│   ├── transform.zig      # 3D transform
 │   └── engine.zig         # Module exports
 │
 ├── examples/
-│   ├── cube3d/            # 3D rotating cube (Application interface)
-│   └── scene_demo/        # ECS scene with parent-child entities
+│   ├── cube3d/            # 3D rotating cube demo
+│   └── scene_demo/        # FPS camera with parent-child entities
 │
 └── build.zig              # Build configuration
 ```
 
-## Two Ways to Build Games
+## Building Games
 
-### Option 1: ECS/Scene Approach (Recommended)
-
-Simpler setup with automatic rendering and parent-child hierarchies:
+Use the ECS/Scene approach for simple setup with automatic rendering and parent-child hierarchies:
 
 ```zig
 const engine = @import("engine");
@@ -74,36 +70,24 @@ try scene.addComponent(cube, MeshRendererComponent.init(&mesh));
 try eng.runScene(&scene, myUpdateFn);
 ```
 
-### Option 2: Application Interface
-
-Full control over rendering for custom pipelines:
-
-```zig
-pub fn init(self: *MyGame, ctx: *Context) !void
-pub fn deinit(self: *MyGame, ctx: *Context) void
-pub fn update(self: *MyGame, ctx: *Context, delta_time: f32) !void
-pub fn render(self: *MyGame, ctx: *Context) !void
-```
-
 ## Examples
 
 ### Cube3D (`zig build run`)
-Traditional Application interface with manual rendering:
+Simple rotating cube demo:
 - Creating and uploading meshes to GPU
 - 3D camera with WASD movement
 - Transform rotation with quaternions
-- Per-object Model-View-Projection uniforms
 
 ### Scene Demo (`zig build run-scene`)
-ECS approach with automatic rendering:
+FPS camera with parent-child hierarchy:
 - Scene and Entity management
 - Parent-child entity hierarchies (child cube orbits parent)
-- Component-based architecture
-- Simplified update loop
+- Mouse-look FPS camera controls
 
-**Controls (both):**
-- WASD/Arrow Keys: Move camera
-- Q/E: Move up/down
+**Controls:**
+- WASD: Move camera
+- Mouse: Look around (scene_demo, click to capture)
+- Q/E or Space/Shift: Move up/down
 - F3: Toggle FPS counter
 - ESC: Quit
 
@@ -173,11 +157,9 @@ fn update(scene: *Scene, input: *Input, delta_time: f32) !void {
 
 Add to `build.zig` and run with `zig build run-my-game`
 
-See [examples/README.md](examples/README.md) for the Application interface approach and detailed setup
-
 ## Engine API
 
-### Scene & Entities (ECS)
+### Scene & Entities
 
 ```zig
 var scene = Scene.init(allocator);
@@ -196,24 +178,12 @@ if (scene.getComponent(TransformComponent, entity)) |transform| {
 }
 ```
 
-### Camera
-
-```zig
-var camera = Camera.init(width, height);
-camera.position = Vec3.init(0, 2, 5);
-camera.target = Vec3.init(0, 0, 0);
-camera.moveForward(distance);
-camera.moveRight(distance);
-camera.orbit(yaw, pitch);
-```
-
 ### Transform
 
 ```zig
-var transform = Transform.withPosition(Vec3.init(0, 0, 0));
-transform.scale = Vec3.init(2, 2, 2);
+var transform = TransformComponent.withPosition(Vec3.init(0, 0, 0));
+transform.setScale(Vec3.init(2, 2, 2));
 transform.setRotationEuler(pitch, yaw, roll);
-const model_matrix = transform.getMatrix();
 ```
 
 ### Mesh
