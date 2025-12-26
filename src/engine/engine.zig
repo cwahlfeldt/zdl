@@ -277,6 +277,12 @@ pub const Engine = struct {
         sdl.quit(.{ .video = true });
     }
 
+    /// Set mouse capture mode (hides cursor and captures relative motion)
+    pub fn setMouseCapture(self: *Engine, captured: bool) void {
+        self.input.mouse_captured = captured;
+        sdl.mouse.setWindowRelativeMode(self.window, captured) catch {};
+    }
+
     /// Run the game loop with the provided application
     pub fn run(self: *Engine, app: Application) !void {
         var ctx = Context{
@@ -309,7 +315,13 @@ pub const Engine = struct {
                 switch (event) {
                     .quit => running = false,
                     .key_down => |key_event| {
-                        if (key_event.scancode == .escape) running = false;
+                        if (key_event.scancode == .escape) {
+                            if (self.input.mouse_captured) {
+                                self.setMouseCapture(false);
+                            } else {
+                                running = false;
+                            }
+                        }
                         if (key_event.scancode == .func3) {
                             self.show_fps = !self.show_fps;
                             std.debug.print("FPS counter: {s}\n", .{if (self.show_fps) "ON" else "OFF"});
@@ -321,6 +333,7 @@ pub const Engine = struct {
                         try self.input.processEvent(event);
                     },
                     .key_up => try self.input.processEvent(event),
+                    .mouse_motion, .mouse_button_down, .mouse_button_up => try self.input.processEvent(event),
                     else => {},
                 }
             }
@@ -356,7 +369,7 @@ pub const Engine = struct {
     pub fn runScene(
         self: *Engine,
         scene: *Scene,
-        update_fn: ?*const fn (*Scene, *Input, f32) anyerror!void,
+        update_fn: ?*const fn (*Engine, *Scene, *Input, f32) anyerror!void,
     ) !void {
         var running = true;
         while (running) {
@@ -370,7 +383,14 @@ pub const Engine = struct {
                 switch (event) {
                     .quit => running = false,
                     .key_down => |key_event| {
-                        if (key_event.scancode == .escape) running = false;
+                        if (key_event.scancode == .escape) {
+                            // If mouse is captured, release it first; otherwise quit
+                            if (self.input.mouse_captured) {
+                                self.setMouseCapture(false);
+                            } else {
+                                running = false;
+                            }
+                        }
                         if (key_event.scancode == .func3) {
                             self.show_fps = !self.show_fps;
                             std.debug.print("FPS counter: {s}\n", .{if (self.show_fps) "ON" else "OFF"});
@@ -382,6 +402,7 @@ pub const Engine = struct {
                         try self.input.processEvent(event);
                     },
                     .key_up => try self.input.processEvent(event),
+                    .mouse_motion, .mouse_button_down, .mouse_button_up => try self.input.processEvent(event),
                     else => {},
                 }
             }
@@ -401,8 +422,8 @@ pub const Engine = struct {
             }
 
             // Call user update function if provided
-            if (update_fn) |update| {
-                try update(scene, &self.input, delta_time);
+            if (update_fn) |update_callback| {
+                try update_callback(self, scene, &self.input, delta_time);
             }
 
             // Update world transforms

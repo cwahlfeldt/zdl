@@ -26,7 +26,23 @@ pub const RenderSystem = struct {
         const height: f32 = @floatFromInt(frame.engine.window_height);
         const aspect = width / height;
 
-        const view = CameraComponent.getViewMatrix(camera_transform.world_matrix);
+        // Get camera position and forward direction from world matrix
+        const Vec3 = @import("../../math/math.zig").Vec3;
+        const cam_pos = Vec3.init(
+            camera_transform.world_matrix.data[12],
+            camera_transform.world_matrix.data[13],
+            camera_transform.world_matrix.data[14],
+        );
+        // Forward direction is the negated Z column of the world matrix (OpenGL convention)
+        const cam_forward = Vec3.init(
+            -camera_transform.world_matrix.data[8],
+            -camera_transform.world_matrix.data[9],
+            -camera_transform.world_matrix.data[10],
+        );
+        const cam_target = cam_pos.add(cam_forward);
+        const cam_up = Vec3.init(0, 1, 0);
+
+        const view = Mat4.lookAt(cam_pos, cam_target, cam_up);
         const projection = camera.getProjectionMatrix(aspect);
 
         // Bind pipeline once

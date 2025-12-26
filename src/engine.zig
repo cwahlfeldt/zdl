@@ -11,6 +11,7 @@ pub const Context = Application.Context;
 
 // Subsystems
 pub const Input = @import("input/input.zig").Input;
+pub const MouseButton = @import("input/input.zig").MouseButton;
 pub const Camera = @import("camera.zig").Camera;
 
 // Math

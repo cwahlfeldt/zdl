@@ -10,7 +10,13 @@ This directory contains example applications built with the ZDL 3D engine.
 zig build run
 ```
 
-**Controls:**
+### Scene Demo (ECS)
+
+```bash
+zig build run-scene
+```
+
+**Controls (both examples):**
 - WASD/Arrow Keys: Move camera forward/back/left/right
 - Q/E: Move camera up/down
 - F3: Toggle FPS counter
@@ -20,14 +26,18 @@ zig build run
 
 ```
 examples/
-└── cube3d/
-    ├── main.zig        # Entry point
-    └── cube3d.zig      # Game implementation
+├── cube3d/
+│   ├── main.zig        # Entry point
+│   └── cube3d.zig      # Game implementation (Application interface)
+└── scene_demo/
+    └── main.zig        # ECS-based scene with parent-child entities
 ```
 
-## What the Example Demonstrates
+## What the Examples Demonstrate
 
 ### Cube3D (`examples/cube3d/`)
+
+Traditional Application interface approach with manual rendering.
 
 **Features:**
 - Creating 3D meshes (cube and plane primitives)
@@ -42,14 +52,103 @@ examples/
 **Good for learning:**
 - 3D rendering basics
 - Camera controls
-- Transform hierarchies
+- Transform system
 - GPU resource management
+- Manual render pass setup
+
+### Scene Demo (`examples/scene_demo/`)
+
+Entity Component System (ECS) approach with automatic rendering.
+
+**Features:**
+- Scene and Entity management
+- Component-based architecture (TransformComponent, CameraComponent, MeshRendererComponent)
+- Parent-child entity hierarchies
+- Automatic world transform calculation
+- Simplified update loop with callback function
+- Engine-managed rendering
+
+**Good for learning:**
+- ECS architecture patterns
+- Scene graph hierarchies
+- Component composition
+- Simplified game loop structure
 
 ## Creating Your Own Example
 
-1. Create a new directory: `examples/my_game/`
+Choose between two approaches:
 
-2. Create `main.zig`:
+### Option A: ECS/Scene Approach (Recommended)
+
+Simpler setup with automatic rendering. Best for most games.
+
+1. Create `examples/my_game/main.zig`:
+```zig
+const std = @import("std");
+const engine = @import("engine");
+
+const Engine = engine.Engine;
+const Scene = engine.Scene;
+const Vec3 = engine.Vec3;
+const Input = engine.Input;
+const Mesh = engine.Mesh;
+const primitives = engine.primitives;
+const TransformComponent = engine.TransformComponent;
+const CameraComponent = engine.CameraComponent;
+const MeshRendererComponent = engine.MeshRendererComponent;
+
+var cube_mesh: Mesh = undefined;
+
+pub fn main() !void {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
+    const allocator = gpa.allocator();
+
+    var eng = try Engine.init(allocator, .{
+        .window_title = "My Game",
+        .window_width = 1280,
+        .window_height = 720,
+    });
+    defer eng.deinit();
+
+    // Create mesh
+    cube_mesh = try primitives.createCube(allocator);
+    defer cube_mesh.deinit(&eng.device);
+    try cube_mesh.upload(&eng.device);
+
+    // Create scene
+    var scene = Scene.init(allocator);
+    defer scene.deinit();
+
+    // Create camera
+    const camera = try scene.createEntity();
+    try scene.addComponent(camera, CameraComponent.init());
+    var cam_transform = TransformComponent.withPosition(Vec3.init(0, 2, 5));
+    cam_transform.lookAt(Vec3.init(0, 0, 0), Vec3.init(0, 1, 0));
+    try scene.addComponent(camera, cam_transform);
+    scene.setActiveCamera(camera);
+
+    // Create cube entity
+    const cube = try scene.createEntity();
+    try scene.addComponent(cube, TransformComponent.init());
+    try scene.addComponent(cube, MeshRendererComponent.init(&cube_mesh));
+
+    try eng.runScene(&scene, update);
+}
+
+fn update(scene: *Scene, input: *Input, delta_time: f32) !void {
+    // Your game logic here
+    _ = scene;
+    _ = input;
+    _ = delta_time;
+}
+```
+
+### Option B: Application Interface Approach
+
+Full control over rendering. Best for custom render pipelines.
+
+1. Create `examples/my_game/main.zig`:
 ```zig
 const std = @import("std");
 const engine = @import("engine");
@@ -73,7 +172,7 @@ pub fn main() !void {
 }
 ```
 
-3. Create `my_game.zig`:
+2. Create `examples/my_game/my_game.zig`:
 ```zig
 const std = @import("std");
 const engine = @import("engine");
@@ -83,7 +182,6 @@ const Transform = engine.Transform;
 const Vec3 = engine.Vec3;
 const Mesh = engine.Mesh;
 const primitives = engine.primitives;
-const Uniforms = engine.Uniforms;
 
 pub const MyGame = struct {
     camera: Camera = undefined,
@@ -121,7 +219,8 @@ pub const MyGame = struct {
 };
 ```
 
-4. Add to `build.zig`:
+### Adding to build.zig
+
 ```zig
 const my_game = b.addExecutable(.{
     .name = "my_game",
@@ -141,7 +240,7 @@ const run_my_game_step = b.step("run-my-game", "Run My Game");
 run_my_game_step.dependOn(&run_my_game.step);
 ```
 
-5. Build and run:
+Build and run:
 ```bash
 zig build run-my-game
 ```
@@ -153,18 +252,32 @@ All examples import the engine:
 const engine = @import("engine");
 ```
 
-Available exports:
+**Core:**
 - `engine.Engine` - The engine core
-- `engine.Application` - Application interface
+- `engine.Application` - Application interface (for manual rendering)
 - `engine.Context` - Runtime context
-- `engine.Camera` - 3D perspective camera
-- `engine.Transform` - 3D transform (position, rotation, scale)
+
+**ECS (Entity Component System):**
+- `engine.Scene` - Scene container for entities
+- `engine.Entity` - Entity handle
+- `engine.TransformComponent` - Position, rotation, scale component
+- `engine.CameraComponent` - Camera component
+- `engine.MeshRendererComponent` - Mesh rendering component
+- `engine.LightComponent`, `engine.LightType` - Lighting components
+
+**3D Graphics:**
+- `engine.Camera` - 3D perspective camera (standalone)
+- `engine.Transform` - 3D transform (standalone)
 - `engine.Mesh`, `engine.Vertex3D` - Mesh system
 - `engine.primitives` - Cube, plane, sphere generators
 - `engine.Uniforms` - GPU uniform data
 - `engine.Texture` - Texture loading
+
+**Input/Audio:**
 - `engine.Input` - Keyboard input
 - `engine.Audio`, `engine.Sound` - Audio system
+
+**Math:**
 - `engine.Vec2`, `engine.Vec3`, `engine.Vec4` - Vector types
 - `engine.Mat4` - 4x4 matrix
 - `engine.Quat` - Quaternion
