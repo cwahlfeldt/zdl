@@ -22,7 +22,7 @@ struct Uniforms {
     float4x4 projection;
 };
 
-vertex Vertex3DOutput vertex_3d_main(
+vertex Vertex3DOutput vertex_main(
     Vertex3DInput in [[stage_in]],
     constant Uniforms& uniforms [[buffer(0)]]
 ) {
@@ -41,7 +41,7 @@ vertex Vertex3DOutput vertex_3d_main(
     return out;
 }
 
-fragment float4 fragment_3d_main(
+fragment float4 fragment_main(
     Vertex3DOutput in [[stage_in]],
     texture2d<float> tex [[texture(0)]],
     sampler samp [[sampler(0)]]
