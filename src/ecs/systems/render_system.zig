@@ -45,9 +45,6 @@ pub const RenderSystem = struct {
         const view = Mat4.lookAt(cam_pos, cam_target, cam_up);
         const projection = camera.getProjectionMatrix(aspect);
 
-        // Bind pipeline once
-        frame.bindPipeline();
-
         // Iterate all mesh renderers
         const renderers = scene.getMeshRenderers();
 
@@ -56,6 +53,9 @@ pub const RenderSystem = struct {
 
             // Get world transform
             const transform = scene.getComponent(TransformComponent, entity) orelse continue;
+
+            // Bind pipeline for each mesh
+            frame.bindPipeline();
 
             // Bind texture
             if (renderer.texture) |tex| {

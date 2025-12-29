@@ -450,7 +450,7 @@ pub const RenderFrame = struct {
 
     /// Push uniforms for rendering
     pub fn pushUniforms(self: *RenderFrame, uniforms: Uniforms) void {
-        self.cmd.pushVertexUniformData(1, std.mem.asBytes(&uniforms));
+        self.cmd.pushVertexUniformData(0, std.mem.asBytes(&uniforms));
     }
 
     /// Draw a mesh
