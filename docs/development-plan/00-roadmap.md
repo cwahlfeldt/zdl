@@ -4,6 +4,17 @@
 
 This document outlines the comprehensive development plan to evolve ZDL from its current state as a functional 3D rendering foundation into a production-ready game engine. The plan is organized into phases that can be implemented incrementally without breaking core engine abstractions.
 
+## Progress Summary
+
+| Phase | Status | Progress |
+|-------|--------|----------|
+| Phase 1: Core Infrastructure | In Progress | 1/3 complete |
+| Phase 2: Content Creation | Not Started | 0/3 |
+| Phase 3: Visual Quality | Not Started | 0/3 |
+| Phase 4: Interactivity | Not Started | 0/3 |
+| Phase 5: Extensibility | Not Started | 0/2 |
+| Phase 6: Platform Expansion | Not Started | 0/1 |
+
 ## Current Engine State
 
 ZDL is a Zig-based 3D game engine built on SDL3 with the following implemented features:
@@ -18,6 +29,7 @@ ZDL is a Zig-based 3D game engine built on SDL3 with the following implemented f
 - FPS-style camera controller
 - Basic audio (WAV playback)
 - Cross-platform support (Linux/Vulkan, macOS/Metal)
+- **Asset Pipeline** (tools/asset_pipeline/) - CLI tool, shader/texture processing, incremental builds
 
 **Architecture Strengths:**
 
@@ -32,11 +44,20 @@ ZDL is a Zig-based 3D game engine built on SDL3 with the following implemented f
 
 Essential systems that other features depend on.
 
-| System                                           | Priority | Effort | Dependencies   |
-| ------------------------------------------------ | -------- | ------ | -------------- |
-| [Asset Pipeline](12-asset-pipeline.md)           | Critical | High   | None           |
-| [Scene Serialization](08-scene-serialization.md) | Critical | Medium | Asset Pipeline |
-| [Debug & Profiling](13-debug-profiling.md)       | High     | Medium | None           |
+| System                                           | Priority | Effort | Dependencies   | Status |
+| ------------------------------------------------ | -------- | ------ | -------------- | ------ |
+| [Asset Pipeline](12-asset-pipeline.md)           | Critical | High   | None           | ✅ Complete |
+| [Scene Serialization](08-scene-serialization.md) | Critical | Medium | Asset Pipeline | 🔲 Next |
+| [Debug & Profiling](13-debug-profiling.md)       | High     | Medium | None           | 🔲 Pending |
+
+**Asset Pipeline Implementation Notes:**
+- Location: `tools/asset_pipeline/`
+- CLI tool: `zdl-assets` with build/clean/info/validate commands
+- ShaderProcessor: GLSL→SPIR-V via glslangValidator
+- TextureProcessor: basic copy (ready for compression extensions)
+- AssetDatabase: content hashing for incremental builds
+- Runtime AssetManager: `src/assets/asset_manager.zig`
+- Shader compilation removed from build.zig - now handled by pipeline
 
 **Rationale:** These systems enable productive development of all other features. The asset pipeline provides optimized assets, serialization enables saving/loading, and debug tools accelerate iteration.
 
@@ -154,11 +175,18 @@ _Note: Estimates assume full-time development by a single experienced developer.
 
 ### Milestone 1: Developer Experience
 
-1. Debug & Profiling Tools (13)
-2. Asset Pipeline (12)
-3. Scene Serialization (08)
+1. ~~Asset Pipeline (12)~~ ✅ **COMPLETE**
+2. Scene Serialization (08) ← **NEXT**
+3. Debug & Profiling (13)
 
 _Outcome: Efficient development workflow with visual debugging, optimized assets, and save/load capability._
+
+**Next Steps for Scene Serialization:**
+1. Component Registry - register built-in components with serialize/deserialize traits
+2. JSON Format - implement JSON scene writer/reader using Zig's std.json
+3. Asset References - resolve mesh/texture paths through AssetManager
+4. Scene Loading - parse JSON, create entities, restore hierarchy
+5. (Optional) Binary format for optimized loading
 
 ### Milestone 2: Content Pipeline
 

@@ -4,11 +4,6 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    // Compile shaders
-    compileShaders(b) catch |err| {
-        std.debug.print("Warning: Failed to compile shaders: {}\n", .{err});
-    };
-
     // Get zig-sdl3 dependency
     const sdl3 = b.dependency("sdl3", .{
         .target = target,
@@ -22,6 +17,26 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     engine_module.addImport("sdl3", sdl3.module("sdl3"));
+
+    // Build Asset Pipeline tool
+    const zdl_assets = b.addExecutable(.{
+        .name = "zdl-assets",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tools/asset_pipeline/main.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    b.installArtifact(zdl_assets);
+
+    // Run asset pipeline step
+    const run_assets = b.addRunArtifact(zdl_assets);
+    run_assets.step.dependOn(b.getInstallStep());
+    if (b.args) |args| {
+        run_assets.addArgs(args);
+    }
+    const assets_step = b.step("assets", "Run asset pipeline tool");
+    assets_step.dependOn(&run_assets.step);
 
     // Build Cube3D example
     const cube3d = b.addExecutable(.{
@@ -66,44 +81,8 @@ pub fn build(b: *std.Build) void {
     }
     const run_scene_step = b.step("run-scene", "Run Scene Demo example");
     run_scene_step.dependOn(&run_scene_demo.step);
-}
 
-/// Compile GLSL shaders to SPIR-V using glslangValidator
-fn compileShaders(b: *std.Build) !void {
-    const shader_dir = "src/shaders/";
-
-    // List of shaders to compile
-    const shaders = [_]struct { src: []const u8, stage: []const u8 }{
-        .{ .src = "vertex.vert", .stage = "vert" },
-        .{ .src = "fragment.frag", .stage = "frag" },
-    };
-
-    for (shaders) |shader| {
-        const src_path = b.fmt("{s}{s}", .{ shader_dir, shader.src });
-        const out_path = b.fmt("{s}{s}.spv", .{ shader_dir, shader.src[0 .. shader.src.len - 5] });
-
-        // Run glslangValidator
-        const result = std.process.Child.run(.{
-            .allocator = b.allocator,
-            .argv = &[_][]const u8{
-                "glslangValidator",
-                "-V",
-                src_path,
-                "-o",
-                out_path,
-            },
-        }) catch |err| {
-            std.debug.print("Shader compilation skipped (glslangValidator not found): {}\n", .{err});
-            return;
-        };
-        defer b.allocator.free(result.stdout);
-        defer b.allocator.free(result.stderr);
-
-        if (result.term.Exited != 0) {
-            std.debug.print("Failed to compile {s}:\n{s}\n", .{ src_path, result.stderr });
-            return error.ShaderCompilationFailed;
-        }
-
-        std.debug.print("Compiled shader: {s} -> {s}\n", .{ src_path, out_path });
-    }
+    // Note: Shader compilation is handled by the asset pipeline tool (zdl-assets)
+    // Run: zig build assets -- build --source=src/shaders --output=src/shaders
+    // Or:  ./zig-out/bin/zdl-assets build --source=assets --output=build/assets
 }

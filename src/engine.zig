@@ -28,6 +28,9 @@ pub const Uniforms = @import("gpu/uniforms.zig").Uniforms;
 // Resources
 pub const Texture = @import("resources/texture.zig").Texture;
 
+// Asset Management
+pub const AssetManager = @import("assets/asset_manager.zig").AssetManager;
+
 // Audio
 pub const audio = @import("audio/audio.zig");
 pub const Audio = audio.Audio;

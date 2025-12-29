@@ -16,14 +16,14 @@ const RenderSystem = @import("../ecs/systems/render_system.zig").RenderSystem;
 const is_macos = builtin.os.tag == .macos;
 const ShaderConfig = if (is_macos) struct {
     const format = sdl.gpu.ShaderFormatFlags{ .msl = true };
-    const vertex_path = "src/shaders/shaders.metal";
-    const fragment_path = "src/shaders/shaders.metal";
+    const vertex_path = "assets/shaders/shaders.metal";
+    const fragment_path = "assets/shaders/shaders.metal";
     const vertex_entry = "vertex_main";
     const fragment_entry = "fragment_main";
 } else struct {
     const format = sdl.gpu.ShaderFormatFlags{ .spirv = true };
-    const vertex_path = "src/shaders/vertex.spv";
-    const fragment_path = "src/shaders/fragment.spv";
+    const vertex_path = "build/assets/shaders/vertex.spv";
+    const fragment_path = "build/assets/shaders/fragment.spv";
     const vertex_entry = "main";
     const fragment_entry = "main";
 };
