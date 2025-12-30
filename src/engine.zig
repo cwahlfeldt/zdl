@@ -24,9 +24,15 @@ pub const Mesh = @import("resources/mesh.zig").Mesh;
 pub const Vertex3D = @import("resources/mesh.zig").Vertex3D;
 pub const primitives = @import("resources/primitives.zig");
 pub const Uniforms = @import("gpu/uniforms.zig").Uniforms;
+pub const LightUniforms = @import("gpu/uniforms.zig").LightUniforms;
 
 // Resources
 pub const Texture = @import("resources/texture.zig").Texture;
+
+// Materials (PBR)
+pub const Material = @import("resources/material.zig").Material;
+pub const MaterialUniforms = @import("resources/material.zig").MaterialUniforms;
+pub const AlphaMode = @import("resources/material.zig").AlphaMode;
 
 // Asset Management
 pub const AssetManager = @import("assets/asset_manager.zig").AssetManager;
@@ -47,6 +53,8 @@ pub const TransformComponent = ecs.TransformComponent;
 pub const CameraComponent = ecs.CameraComponent;
 pub const MeshRendererComponent = ecs.MeshRendererComponent;
 pub const FpvCameraController = ecs.FpvCameraController;
+pub const LightComponent = ecs.LightComponent;
+pub const LightType = ecs.LightType;
 
 // Scene Serialization
 pub const serialization = @import("serialization/serialization.zig");

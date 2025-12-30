@@ -106,11 +106,11 @@ pub fn createQuad(allocator: std.mem.Allocator) !Mesh {
 pub fn createSphere(allocator: std.mem.Allocator, resolution: u32) !Mesh {
     const white = [4]f32{ 1.0, 1.0, 1.0, 1.0 };
 
-    var vertices = std.ArrayList(Vertex3D).init(allocator);
-    defer vertices.deinit();
+    var vertices: std.ArrayListUnmanaged(Vertex3D) = .{};
+    defer vertices.deinit(allocator);
 
-    var indices = std.ArrayList(u32).init(allocator);
-    defer indices.deinit();
+    var indices: std.ArrayListUnmanaged(u32) = .{};
+    defer indices.deinit(allocator);
 
     const lat_segments = resolution;
     const lon_segments = resolution * 2;
@@ -137,7 +137,7 @@ pub fn createSphere(allocator: std.mem.Allocator, resolution: u32) !Mesh {
             const u = @as(f32, @floatFromInt(lon)) / @as(f32, @floatFromInt(lon_segments));
             const v = @as(f32, @floatFromInt(lat)) / @as(f32, @floatFromInt(lat_segments));
 
-            try vertices.append(Vertex3D.init(position, normal, Vec2.init(u, v), white));
+            try vertices.append(allocator, Vertex3D.init(position, normal, Vec2.init(u, v), white));
         }
     }
 
@@ -149,13 +149,13 @@ pub fn createSphere(allocator: std.mem.Allocator, resolution: u32) !Mesh {
             const first = lat * (lon_segments + 1) + lon;
             const second = first + lon_segments + 1;
 
-            try indices.append(first);
-            try indices.append(second);
-            try indices.append(first + 1);
+            try indices.append(allocator, first);
+            try indices.append(allocator, second);
+            try indices.append(allocator, first + 1);
 
-            try indices.append(second);
-            try indices.append(second + 1);
-            try indices.append(first + 1);
+            try indices.append(allocator, second);
+            try indices.append(allocator, second + 1);
+            try indices.append(allocator, first + 1);
         }
     }
 

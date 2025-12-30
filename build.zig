@@ -171,6 +171,28 @@ pub fn build(b: *std.Build) void {
     const run_ui_step = b.step("run-ui", "Run UI Demo example");
     run_ui_step.dependOn(&run_ui_demo.step);
 
+    // Build PBR Demo example
+    const pbr_demo = b.addExecutable(.{
+        .name = "pbr_demo",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("examples/pbr_demo/main.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    pbr_demo.root_module.addImport("sdl3", sdl3.module("sdl3"));
+    pbr_demo.root_module.addImport("engine", engine_module);
+    b.installArtifact(pbr_demo);
+
+    // PBR Demo run step
+    const run_pbr_demo = b.addRunArtifact(pbr_demo);
+    run_pbr_demo.step.dependOn(b.getInstallStep());
+    if (b.args) |args| {
+        run_pbr_demo.addArgs(args);
+    }
+    const run_pbr_step = b.step("run-pbr", "Run PBR Demo example");
+    run_pbr_step.dependOn(&run_pbr_demo.step);
+
     // Note: Shader compilation is handled by the asset pipeline tool (zdl-assets)
     // Run: zig build assets -- build --source=src/shaders --output=src/shaders
     // Or:  ./zig-out/bin/zdl-assets build --source=assets --output=build/assets

@@ -1,0 +1,208 @@
+const std = @import("std");
+const engine = @import("engine");
+const Engine = engine.Engine;
+const Scene = engine.Scene;
+const Entity = engine.Entity;
+const Input = engine.Input;
+const Vec3 = engine.Vec3;
+const TransformComponent = engine.TransformComponent;
+const CameraComponent = engine.CameraComponent;
+const MeshRendererComponent = engine.MeshRendererComponent;
+const LightComponent = engine.LightComponent;
+const FpvCameraController = engine.FpvCameraController;
+const Material = engine.Material;
+const primitives = engine.primitives;
+const Mesh = engine.Mesh;
+
+// Scene data
+var sphere_mesh: Mesh = undefined;
+var plane_mesh: Mesh = undefined;
+var rotation: f32 = 0;
+var point_light_entity: Entity = Entity.invalid;
+
+pub fn main() !void {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
+    const allocator = gpa.allocator();
+
+    var eng = try Engine.init(allocator, .{
+        .window_title = "ZDL - PBR Rendering Demo",
+        .window_width = 1280,
+        .window_height = 720,
+        .target_fps = 100,
+        .clear_color = .{ .r = 0.02, .g = 0.02, .b = 0.05, .a = 1.0 },
+    });
+    defer eng.deinit();
+
+    // Initialize PBR rendering
+    try eng.initPBR();
+    std.debug.print("PBR rendering initialized: {}\n", .{eng.hasPBR()});
+
+    // Create scene
+    var scene = Scene.init(allocator);
+    defer scene.deinit();
+
+    // Create meshes
+    sphere_mesh = try primitives.createSphere(allocator, 24);
+    defer sphere_mesh.deinit(&eng.device);
+    try sphere_mesh.upload(&eng.device);
+
+    plane_mesh = try primitives.createPlane(allocator);
+    defer plane_mesh.deinit(&eng.device);
+    try plane_mesh.upload(&eng.device);
+
+    // Create camera entity
+    const camera_entity = try scene.createEntity();
+    var camera_transform = TransformComponent.withPosition(Vec3.init(0, 4, 12));
+    camera_transform.lookAt(Vec3.init(0, 0, 0), Vec3.init(0, 1, 0));
+    try scene.addComponent(camera_entity, camera_transform);
+    try scene.addComponent(camera_entity, CameraComponent.init());
+    scene.setActiveCamera(camera_entity);
+
+    // Add FPV controller and initialize looking at origin
+    var fpv_controller = FpvCameraController.initWithConfig(.{
+        .sensitivity = 0.003,
+        .move_speed = 5.0,
+        .capture_on_click = true,
+    });
+    // Set initial look direction toward origin
+    const look_dir = Vec3.init(0, 0, 0).sub(Vec3.init(0, 2, 5)).normalize();
+    fpv_controller.lookAt(look_dir);
+    try scene.addComponent(camera_entity, fpv_controller);
+    scene.setActiveCamera(camera_entity);
+
+    // Create a grid of spheres with varying materials
+    // Rows: varying roughness (0.0 to 1.0)
+    // Columns: varying metallic (0.0 to 1.0)
+    const grid_size: usize = 5;
+    const spacing: f32 = 2.5;
+    const offset: f32 = @as(f32, @floatFromInt(grid_size - 1)) * spacing * 0.5;
+
+    for (0..grid_size) |row| {
+        for (0..grid_size) |col| {
+            const metallic = @as(f32, @floatFromInt(col)) / @as(f32, @floatFromInt(grid_size - 1));
+            const roughness = @as(f32, @floatFromInt(row)) / @as(f32, @floatFromInt(grid_size - 1));
+
+            const x = @as(f32, @floatFromInt(col)) * spacing - offset;
+            const y = @as(f32, @floatFromInt(row)) * spacing - offset + 2.0;
+
+            const sphere_entity = try scene.createEntity();
+            const transform = TransformComponent.withPosition(Vec3.init(x, y, 0));
+            try scene.addComponent(sphere_entity, transform);
+
+            // Create PBR material with varying properties
+            var material = Material.init();
+            material.base_color = engine.Vec4.init(0.9, 0.1, 0.1, 1.0); // Red base color
+            material.metallic = metallic;
+            material.roughness = roughness;
+
+            try scene.addComponent(sphere_entity, MeshRendererComponent.withMaterial(&sphere_mesh, material));
+        }
+    }
+
+    // Add some colored spheres with different base colors
+    {
+        // Gold (metallic)
+        const gold_entity = try scene.createEntity();
+        try scene.addComponent(gold_entity, TransformComponent.withPosition(Vec3.init(-6, 2, 0)));
+        const gold_mat = Material.metal(1.0, 0.766, 0.336, 0.3);
+        try scene.addComponent(gold_entity, MeshRendererComponent.withMaterial(&sphere_mesh, gold_mat));
+    }
+
+    {
+        // Silver (metallic)
+        const silver_entity = try scene.createEntity();
+        try scene.addComponent(silver_entity, TransformComponent.withPosition(Vec3.init(-6, 5, 0)));
+        const silver_mat = Material.metal(0.972, 0.960, 0.915, 0.2);
+        try scene.addComponent(silver_entity, MeshRendererComponent.withMaterial(&sphere_mesh, silver_mat));
+    }
+
+    {
+        // Copper (metallic)
+        const copper_entity = try scene.createEntity();
+        try scene.addComponent(copper_entity, TransformComponent.withPosition(Vec3.init(-6, 8, 0)));
+        const copper_mat = Material.metal(0.955, 0.637, 0.538, 0.4);
+        try scene.addComponent(copper_entity, MeshRendererComponent.withMaterial(&sphere_mesh, copper_mat));
+    }
+
+    {
+        // Plastic (dielectric)
+        const plastic_entity = try scene.createEntity();
+        try scene.addComponent(plastic_entity, TransformComponent.withPosition(Vec3.init(6, 2, 0)));
+        const plastic_mat = Material.dielectric(0.2, 0.6, 0.9, 0.3);
+        try scene.addComponent(plastic_entity, MeshRendererComponent.withMaterial(&sphere_mesh, plastic_mat));
+    }
+
+    {
+        // Emissive sphere
+        const emissive_entity = try scene.createEntity();
+        try scene.addComponent(emissive_entity, TransformComponent.withPosition(Vec3.init(6, 5, 0)));
+        const emissive_mat = Material.withEmissive(0.1, 0.1, 0.1, 2.0, 1.0, 0.5);
+        try scene.addComponent(emissive_entity, MeshRendererComponent.withMaterial(&sphere_mesh, emissive_mat));
+    }
+
+    // Create floor plane
+    const floor_entity = try scene.createEntity();
+    var floor_transform = TransformComponent.withPosition(Vec3.init(0, -2, 0));
+    floor_transform.setScale(Vec3.init(20, 1, 20));
+    try scene.addComponent(floor_entity, floor_transform);
+    const floor_mat = Material.dielectric(0.3, 0.3, 0.35, 0.8);
+    try scene.addComponent(floor_entity, MeshRendererComponent.withMaterial(&plane_mesh, floor_mat));
+
+    // Create directional light (sun)
+    const sun_entity = try scene.createEntity();
+    var sun_transform = TransformComponent.init();
+    sun_transform.setRotationEuler(-0.6, 0.3, 0);
+    try scene.addComponent(sun_entity, sun_transform);
+    try scene.addComponent(sun_entity, LightComponent.directional(Vec3.init(1, 0.95, 0.9), 2.0));
+
+    // Create point lights
+    point_light_entity = try scene.createEntity();
+    try scene.addComponent(point_light_entity, TransformComponent.withPosition(Vec3.init(5, 3, 5)));
+    try scene.addComponent(point_light_entity, LightComponent.point(Vec3.init(0.2, 0.5, 1.0), 5.0, 15.0));
+
+    const point_light2 = try scene.createEntity();
+    try scene.addComponent(point_light2, TransformComponent.withPosition(Vec3.init(-5, 3, 5)));
+    try scene.addComponent(point_light2, LightComponent.point(Vec3.init(1.0, 0.4, 0.2), 5.0, 15.0));
+
+    std.debug.print("\nPBR Demo initialized!\n", .{});
+    std.debug.print("Scene shows {d}x{d} sphere grid with varying metallic/roughness\n", .{ grid_size, grid_size });
+    std.debug.print("\nControls:\n", .{});
+    std.debug.print("  WASD/Arrow Keys - Move camera\n", .{});
+    std.debug.print("  Q/E - Move camera up/down\n", .{});
+    std.debug.print("  F3 - Toggle FPS counter\n", .{});
+    std.debug.print("  ESC - Quit\n", .{});
+    std.debug.print("\nSphere Grid:\n", .{});
+    std.debug.print("  Columns (left to right): Increasing metallic (0.0 to 1.0)\n", .{});
+    std.debug.print("  Rows (bottom to top): Increasing roughness (0.0 to 1.0)\n", .{});
+    std.debug.print("\nSide Spheres:\n", .{});
+    std.debug.print("  Left: Gold, Silver, Copper (metals)\n", .{});
+    std.debug.print("  Right: Blue plastic, Emissive orange\n", .{});
+
+    // Run game loop with scene
+    try eng.runScene(&scene, update);
+}
+
+fn update(eng: *Engine, scene: *Scene, input: *Input, delta_time: f32) !void {
+    // Get camera transform
+    const camera_entity = scene.getActiveCamera();
+    // FPS Camera controls via controller component
+    if (scene.getComponent(FpvCameraController, camera_entity)) |controller| {
+        if (scene.getComponent(TransformComponent, camera_entity)) |cam_transform| {
+            if (controller.update(cam_transform, input, delta_time)) {
+                eng.setMouseCapture(true);
+            }
+        }
+    }
+
+    // Animate point light
+    rotation += delta_time;
+    if (scene.getComponent(TransformComponent, point_light_entity)) |light_transform| {
+        const radius: f32 = 6.0;
+        light_transform.setPosition(Vec3.init(
+            @cos(rotation) * radius,
+            3.0 + @sin(rotation * 2.0),
+            @sin(rotation) * radius + 5.0,
+        ));
+    }
+}

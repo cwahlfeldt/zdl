@@ -10,7 +10,7 @@ This document outlines the comprehensive development plan to evolve ZDL from its
 |-------|--------|----------|
 | Phase 1: Core Infrastructure | ✅ Complete | 3/3 complete |
 | Phase 2: Content Creation | ✅ Complete | 3/3 complete |
-| Phase 3: Visual Quality | Not Started | 0/3 |
+| Phase 3: Visual Quality | 🟡 In Progress | 1/3 complete |
 | Phase 4: Interactivity | Not Started | 0/3 |
 | Phase 5: Extensibility | Not Started | 0/2 |
 | Phase 6: Platform Expansion | Not Started | 0/1 |
@@ -35,6 +35,7 @@ ZDL is a Zig-based 3D game engine built on SDL3 with the following implemented f
 - **glTF Asset Loading** (src/assets/gltf/) - Load .gltf/.glb files with meshes, textures, and scene hierarchy
 - **Animation System** (src/animation/) - Skeletal animation with keyframe sampling, blending, and GPU skinning
 - **UI System** (src/ui/) - Immediate-mode UI with batched 2D rendering, built-in font, themed widgets
+- **PBR Rendering** (src/resources/material.zig, assets/shaders/pbr.*) - Physically-based rendering with metallic-roughness workflow, multiple light types
 
 **Architecture Strengths:**
 
@@ -133,11 +134,21 @@ Systems for creating game content.
 
 Systems that enhance visual fidelity.
 
-| System                                               | Priority | Effort    | Dependencies       |
-| ---------------------------------------------------- | -------- | --------- | ------------------ |
-| [Advanced Rendering (PBR)](03-advanced-rendering.md) | Critical | Very High | glTF (materials)   |
-| [Skybox & Environment](04-skybox-environment.md)     | High     | Medium    | Advanced Rendering |
-| [Particle System](15-particle-system.md)             | High     | High      | None               |
+| System                                               | Priority | Effort    | Dependencies       | Status |
+| ---------------------------------------------------- | -------- | --------- | ------------------ | ------ |
+| [Advanced Rendering (PBR)](03-advanced-rendering.md) | Critical | Very High | glTF (materials)   | ✅ Complete |
+| [Skybox & Environment](04-skybox-environment.md)     | High     | Medium    | Advanced Rendering | |
+| [Particle System](15-particle-system.md)             | High     | High      | None               | |
+
+**PBR Rendering Implementation Notes:**
+- Location: `src/resources/material.zig`, `assets/shaders/pbr.*`
+- Material: PBR properties (base_color, metallic, roughness, emissive, normal_scale, ao_strength)
+- MeshRendererComponent extended with optional Material
+- LightUniforms: Support for directional, point, and spot lights
+- PBR shaders: Cook-Torrance BRDF, GGX distribution, Schlick-GGX geometry
+- GPU skinning compatibility maintained
+- Automatic pipeline switching (legacy vs PBR based on material presence)
+- Example: `examples/pbr_demo/` demonstrates metallic-roughness workflow
 
 **Rationale:** PBR rendering is the industry standard for realistic materials. Environment rendering provides visual context. Particles enable effects like fire, smoke, and magic.
 
@@ -245,10 +256,10 @@ _Outcome: Efficient development workflow with visual debugging, optimized assets
 
 _Outcome: Load industry-standard 3D models with animations. Create menus and HUDs._
 
-### Milestone 3: Visual Fidelity ← **NEXT**
+### Milestone 3: Visual Fidelity ← **IN PROGRESS**
 
-7. Advanced Rendering/PBR (03) ← **NEXT**
-8. Skybox & Environment (04)
+7. ~~Advanced Rendering/PBR (03)~~ ✅ **COMPLETE**
+8. Skybox & Environment (04) ← **NEXT**
 9. Particle System (15)
 
 _Outcome: Photorealistic materials, atmospheric environments, visual effects._

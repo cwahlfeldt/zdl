@@ -5,7 +5,10 @@ const Input = @import("../input/input.zig").Input;
 const Mesh = @import("../resources/mesh.zig").Mesh;
 const Vertex3D = @import("../resources/mesh.zig").Vertex3D;
 const Uniforms = @import("../gpu/uniforms.zig").Uniforms;
+const LightUniforms = @import("../gpu/uniforms.zig").LightUniforms;
 const Texture = @import("../resources/texture.zig").Texture;
+const Material = @import("../resources/material.zig").Material;
+const MaterialUniforms = @import("../resources/material.zig").MaterialUniforms;
 const Audio = @import("../audio/audio.zig").Audio;
 
 // ECS imports
@@ -24,6 +27,21 @@ const ShaderConfig = if (is_macos) struct {
     const format = sdl.gpu.ShaderFormatFlags{ .spirv = true };
     const vertex_path = "build/assets/shaders/vertex.spv";
     const fragment_path = "build/assets/shaders/fragment.spv";
+    const vertex_entry = "main";
+    const fragment_entry = "main";
+};
+
+// PBR shader configuration
+const PBRShaderConfig = if (is_macos) struct {
+    const format = sdl.gpu.ShaderFormatFlags{ .msl = true };
+    const vertex_path = "assets/shaders/pbr.metal";
+    const fragment_path = "assets/shaders/pbr.metal";
+    const vertex_entry = "pbr_vertex_main";
+    const fragment_entry = "pbr_fragment_main";
+} else struct {
+    const format = sdl.gpu.ShaderFormatFlags{ .spirv = true };
+    const vertex_path = "build/assets/shaders/pbr.vert.spv";
+    const fragment_path = "build/assets/shaders/pbr.frag.spv";
     const vertex_entry = "main";
     const fragment_entry = "main";
 };
@@ -68,11 +86,21 @@ pub const Engine = struct {
     input: Input,
     audio: Audio,
 
-    // GPU Resources
+    // GPU Resources - Legacy pipeline
     pipeline: sdl.gpu.GraphicsPipeline,
     depth_texture: ?sdl.gpu.Texture,
     white_texture: Texture,
     sampler: sdl.gpu.Sampler,
+
+    // GPU Resources - PBR pipeline
+    pbr_pipeline: ?sdl.gpu.GraphicsPipeline,
+    default_normal_texture: ?Texture, // Flat normal map (128, 128, 255)
+    default_mr_texture: ?Texture, // Default metallic-roughness (0, 0.5, 0)
+    default_ao_texture: ?Texture, // White AO texture
+    default_emissive_texture: ?Texture, // Black emissive texture
+
+    // Scene lighting (updated per frame for PBR)
+    light_uniforms: LightUniforms,
 
     // Window state
     window_width: u32,
@@ -241,6 +269,13 @@ pub const Engine = struct {
             .depth_texture = depth_texture,
             .white_texture = white_texture,
             .sampler = sampler,
+            // PBR resources initialized lazily via initPBR()
+            .pbr_pipeline = null,
+            .default_normal_texture = null,
+            .default_mr_texture = null,
+            .default_ao_texture = null,
+            .default_emissive_texture = null,
+            .light_uniforms = LightUniforms.default(),
             .window_width = config.window_width,
             .window_height = config.window_height,
             .clear_color = config.clear_color,
@@ -254,11 +289,134 @@ pub const Engine = struct {
         };
     }
 
+    /// Initialize the PBR rendering pipeline and default textures.
+    /// Call this before using PBR materials. Safe to call multiple times.
+    pub fn initPBR(self: *Engine) !void {
+        if (self.pbr_pipeline != null) return; // Already initialized
+
+        var mutable_device = self.device;
+
+        // Create default PBR textures
+        // Flat normal map (pointing straight up in tangent space)
+        self.default_normal_texture = try Texture.createColored(&mutable_device, 1, 1, .{ 128, 128, 255, 255 });
+        errdefer if (self.default_normal_texture) |t| t.deinit(&mutable_device);
+
+        // Default metallic-roughness (non-metallic, medium roughness)
+        // B=metallic, G=roughness following glTF convention
+        self.default_mr_texture = try Texture.createColored(&mutable_device, 1, 1, .{ 0, 128, 0, 255 });
+        errdefer if (self.default_mr_texture) |t| t.deinit(&mutable_device);
+
+        // White AO texture (no occlusion)
+        self.default_ao_texture = try Texture.createColored(&mutable_device, 1, 1, .{ 255, 255, 255, 255 });
+        errdefer if (self.default_ao_texture) |t| t.deinit(&mutable_device);
+
+        // Black emissive texture (no emission)
+        self.default_emissive_texture = try Texture.createColored(&mutable_device, 1, 1, .{ 0, 0, 0, 255 });
+        errdefer if (self.default_emissive_texture) |t| t.deinit(&mutable_device);
+
+        // Load PBR shaders
+        const pbr_vertex_code = try std.fs.cwd().readFileAlloc(
+            self.allocator,
+            PBRShaderConfig.vertex_path,
+            1024 * 1024,
+        );
+        defer self.allocator.free(pbr_vertex_code);
+
+        const pbr_fragment_code = if (is_macos)
+            pbr_vertex_code
+        else
+            try std.fs.cwd().readFileAlloc(
+                self.allocator,
+                PBRShaderConfig.fragment_path,
+                1024 * 1024,
+            );
+        defer if (!is_macos) self.allocator.free(pbr_fragment_code);
+
+        const pbr_vertex_shader = try self.device.createShader(.{
+            .code = pbr_vertex_code,
+            .entry_point = PBRShaderConfig.vertex_entry,
+            .format = PBRShaderConfig.format,
+            .stage = .vertex,
+            .num_samplers = 0,
+            .num_storage_buffers = 0,
+            .num_storage_textures = 0,
+            .num_uniform_buffers = 1, // MVP uniforms
+        });
+        defer self.device.releaseShader(pbr_vertex_shader);
+
+        const pbr_fragment_shader = try self.device.createShader(.{
+            .code = pbr_fragment_code,
+            .entry_point = PBRShaderConfig.fragment_entry,
+            .format = PBRShaderConfig.format,
+            .stage = .fragment,
+            .num_samplers = 5, // base_color, normal, metallic_roughness, ao, emissive
+            .num_storage_buffers = 0,
+            .num_storage_textures = 0,
+            .num_uniform_buffers = 2, // material + lights
+        });
+        defer self.device.releaseShader(pbr_fragment_shader);
+
+        const vertex_buffer_desc = Mesh.getVertexBufferDesc();
+        const vertex_attributes = Mesh.getVertexAttributes();
+
+        const color_target_desc = sdl.gpu.ColorTargetDescription{
+            .format = try self.device.getSwapchainTextureFormat(self.window),
+            .blend_state = .{
+                .enable_blend = false,
+                .color_blend = .add,
+                .alpha_blend = .add,
+                .source_color = .one,
+                .source_alpha = .one,
+                .destination_color = .zero,
+                .destination_alpha = .zero,
+                .enable_color_write_mask = true,
+                .color_write_mask = .{ .red = true, .green = true, .blue = true, .alpha = true },
+            },
+        };
+
+        self.pbr_pipeline = try self.device.createGraphicsPipeline(.{
+            .vertex_shader = pbr_vertex_shader,
+            .fragment_shader = pbr_fragment_shader,
+            .primitive_type = .triangle_list,
+            .vertex_input_state = .{
+                .vertex_buffer_descriptions = &[_]sdl.gpu.VertexBufferDescription{vertex_buffer_desc},
+                .vertex_attributes = &vertex_attributes,
+            },
+            .rasterizer_state = .{
+                .cull_mode = .back,
+                .front_face = .counter_clockwise,
+            },
+            .target_info = .{
+                .color_target_descriptions = &[_]sdl.gpu.ColorTargetDescription{color_target_desc},
+                .depth_stencil_format = .depth32_float,
+            },
+            .depth_stencil_state = .{
+                .enable_depth_test = true,
+                .enable_depth_write = true,
+                .compare = .less,
+                .enable_stencil_test = false,
+            },
+        });
+    }
+
+    /// Check if PBR rendering is available.
+    pub fn hasPBR(self: *Engine) bool {
+        return self.pbr_pipeline != null;
+    }
+
     pub fn deinit(self: *Engine) void {
         self.audio.deinit();
         self.device.releaseSampler(self.sampler);
         var mutable_device = self.device;
         self.white_texture.deinit(&mutable_device);
+
+        // Clean up PBR resources
+        if (self.pbr_pipeline) |p| self.device.releaseGraphicsPipeline(p);
+        if (self.default_normal_texture) |t| t.deinit(&mutable_device);
+        if (self.default_mr_texture) |t| t.deinit(&mutable_device);
+        if (self.default_ao_texture) |t| t.deinit(&mutable_device);
+        if (self.default_emissive_texture) |t| t.deinit(&mutable_device);
+
         if (self.depth_texture) |dt| self.device.releaseTexture(dt);
         self.device.releaseGraphicsPipeline(self.pipeline);
         self.input.deinit();
@@ -461,5 +619,116 @@ pub const RenderFrame = struct {
         }});
         self.pass.bindIndexBuffer(.{ .buffer = mesh.index_buffer.?, .offset = 0 }, .indices_32bit);
         self.pass.drawIndexedPrimitives(@intCast(mesh.indices.len), 1, 0, 0, 0);
+    }
+
+    // ========================================================================
+    // PBR Rendering Methods
+    // ========================================================================
+
+    /// Bind the PBR pipeline. Returns false if PBR is not initialized.
+    pub fn bindPBRPipeline(self: *RenderFrame) bool {
+        if (self.engine.pbr_pipeline) |pbr| {
+            self.pass.bindGraphicsPipeline(pbr);
+            return true;
+        }
+        return false;
+    }
+
+    /// Push material uniforms for PBR rendering.
+    pub fn pushMaterialUniforms(self: *RenderFrame, material_uniforms: MaterialUniforms) void {
+        self.cmd.pushFragmentUniformData(0, std.mem.asBytes(&material_uniforms));
+    }
+
+    /// Push light uniforms for PBR rendering.
+    pub fn pushLightUniforms(self: *RenderFrame, light_uniforms: LightUniforms) void {
+        self.cmd.pushFragmentUniformData(1, std.mem.asBytes(&light_uniforms));
+    }
+
+    /// Bind PBR textures for a material.
+    /// Uses default textures for any missing material textures.
+    pub fn bindPBRTextures(self: *RenderFrame, material: Material) void {
+        const eng = self.engine;
+
+        // Get texture for each slot, falling back to defaults
+        const base_color_tex = if (material.base_color_texture) |t|
+            t.gpu_texture
+        else
+            eng.white_texture.gpu_texture;
+
+        const normal_tex = if (material.normal_texture) |t|
+            t.gpu_texture
+        else if (eng.default_normal_texture) |t|
+            t.gpu_texture
+        else
+            eng.white_texture.gpu_texture;
+
+        const mr_tex = if (material.metallic_roughness_texture) |t|
+            t.gpu_texture
+        else if (eng.default_mr_texture) |t|
+            t.gpu_texture
+        else
+            eng.white_texture.gpu_texture;
+
+        const ao_tex = if (material.ao_texture) |t|
+            t.gpu_texture
+        else if (eng.default_ao_texture) |t|
+            t.gpu_texture
+        else
+            eng.white_texture.gpu_texture;
+
+        const emissive_tex = if (material.emissive_texture) |t|
+            t.gpu_texture
+        else if (eng.default_emissive_texture) |t|
+            t.gpu_texture
+        else
+            eng.white_texture.gpu_texture;
+
+        // Bind all 5 texture slots
+        self.pass.bindFragmentSamplers(0, &[_]sdl.gpu.TextureSamplerBinding{
+            .{ .texture = base_color_tex, .sampler = eng.sampler },
+            .{ .texture = normal_tex, .sampler = eng.sampler },
+            .{ .texture = mr_tex, .sampler = eng.sampler },
+            .{ .texture = ao_tex, .sampler = eng.sampler },
+            .{ .texture = emissive_tex, .sampler = eng.sampler },
+        });
+    }
+
+    /// Bind default PBR textures (white base color, flat normal, etc.)
+    pub fn bindDefaultPBRTextures(self: *RenderFrame) void {
+        const eng = self.engine;
+
+        const normal_tex = if (eng.default_normal_texture) |t| t.gpu_texture else eng.white_texture.gpu_texture;
+        const mr_tex = if (eng.default_mr_texture) |t| t.gpu_texture else eng.white_texture.gpu_texture;
+        const ao_tex = if (eng.default_ao_texture) |t| t.gpu_texture else eng.white_texture.gpu_texture;
+        const emissive_tex = if (eng.default_emissive_texture) |t| t.gpu_texture else eng.white_texture.gpu_texture;
+
+        self.pass.bindFragmentSamplers(0, &[_]sdl.gpu.TextureSamplerBinding{
+            .{ .texture = eng.white_texture.gpu_texture, .sampler = eng.sampler },
+            .{ .texture = normal_tex, .sampler = eng.sampler },
+            .{ .texture = mr_tex, .sampler = eng.sampler },
+            .{ .texture = ao_tex, .sampler = eng.sampler },
+            .{ .texture = emissive_tex, .sampler = eng.sampler },
+        });
+    }
+
+    /// Draw a mesh with PBR material.
+    /// Binds textures, pushes uniforms, and draws the mesh.
+    pub fn drawMeshPBR(self: *RenderFrame, mesh: Mesh, material: Material, model_matrix: @import("../math/math.zig").Mat4, view: @import("../math/math.zig").Mat4, projection: @import("../math/math.zig").Mat4) void {
+        // Push MVP uniforms
+        const uniforms = Uniforms.init(model_matrix, view, projection);
+        self.pushUniforms(uniforms);
+
+        // Push material uniforms
+        const mat_uniforms = MaterialUniforms.fromMaterial(material);
+        self.pushMaterialUniforms(mat_uniforms);
+
+        // Push light uniforms
+        self.pushLightUniforms(self.engine.light_uniforms);
+
+        // Bind textures
+        self.bindPBRTextures(material);
+
+        // Draw
+        self.drawMesh(mesh);
     }
 };

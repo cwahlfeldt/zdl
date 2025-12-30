@@ -96,7 +96,8 @@ examples/
 ├── scene_demo/       # FPS camera with scene hierarchy
 ├── debug_demo/       # Debug visualization and profiling demo
 ├── gltf_demo/        # glTF model loading demo
-└── animation_demo/   # Skeletal animation demo
+├── animation_demo/   # Skeletal animation demo
+└── pbr_demo/         # PBR rendering with materials and lights
 ```
 
 ### Core Components
@@ -124,6 +125,7 @@ examples/
 
 **MeshRendererComponent** ([src/ecs/components/mesh_renderer.zig](src/ecs/components/mesh_renderer.zig)):
 - Mesh and optional texture references
+- Optional PBR Material for physically-based rendering
 - Enabled flag for visibility control
 
 **Mesh** ([src/resources/mesh.zig](src/resources/mesh.zig)):
@@ -339,6 +341,75 @@ const matrices = animator.getSkinningMatrices();
 ```
 
 See `examples/animation_demo/` for a complete example.
+
+### PBR Rendering
+
+The engine supports Physically-Based Rendering with metallic-roughness workflow:
+
+**Material** - PBR material properties:
+```zig
+const Material = engine.Material;
+
+// Create materials with helper methods
+const gold = Material.metal(1.0, 0.766, 0.336, 0.3);  // r, g, b, roughness
+const plastic = Material.dielectric(0.2, 0.6, 0.9, 0.3);  // r, g, b, roughness
+const emissive = Material.withEmissive(0.1, 0.1, 0.1, 2.0, 1.0, 0.5);  // base rgb, emissive rgb
+
+// Or configure manually
+var material = Material.init();
+material.base_color = Vec4.init(0.9, 0.1, 0.1, 1.0);
+material.metallic = 0.0;     // 0.0 = dielectric, 1.0 = metal
+material.roughness = 0.5;    // 0.0 = smooth, 1.0 = rough
+material.emissive = Vec3.init(0, 0, 0);
+
+// Attach to mesh renderer
+try scene.addComponent(entity, MeshRendererComponent.withMaterial(&mesh, material));
+```
+
+**Lights** - Multiple light types:
+```zig
+const LightComponent = engine.LightComponent;
+
+// Directional light (sun)
+try scene.addComponent(sun, LightComponent.directional(
+    Vec3.init(1, 0.95, 0.9),  // color
+    2.0                       // intensity
+));
+
+// Point light
+try scene.addComponent(lamp, LightComponent.point(
+    Vec3.init(1, 0.8, 0.6),  // color
+    5.0,                      // intensity
+    15.0                      // range
+));
+
+// Spot light
+try scene.addComponent(flashlight, LightComponent.spot(
+    Vec3.init(1, 1, 1),      // color
+    10.0,                     // intensity
+    20.0,                     // range
+    0.9,                      // inner_cutoff (cos of angle)
+    0.8                       // outer_cutoff (cos of angle)
+));
+```
+
+**Initialization** - Enable PBR in your game:
+```zig
+var eng = try Engine.init(allocator, .{ .window_title = "PBR Demo" });
+defer eng.deinit();
+
+// Initialize PBR pipeline (required before using materials)
+try eng.initPBR();
+
+// Check if PBR is available
+if (eng.hasPBR()) {
+    // PBR rendering enabled
+}
+```
+
+The render system automatically switches between legacy and PBR pipelines based on whether entities have materials attached.
+
+See `examples/pbr_demo/` for a complete example.
 
 ## Creating a New Game
 
