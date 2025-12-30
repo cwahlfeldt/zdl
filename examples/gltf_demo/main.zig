@@ -46,7 +46,7 @@ pub fn main() !void {
         .window_title = "ZDL - glTF Demo",
         .window_width = 1280,
         .window_height = 720,
-        .target_fps = 60,
+        .target_fps = 100,
     });
     defer eng.deinit();
 
@@ -99,7 +99,7 @@ pub fn main() !void {
     std.debug.print("Loading glTF model...\n", .{});
 
     imported_entities = asset_manager.importGLTFScene(
-        "assets/models/Box.glb",
+        "assets/models/BoxTextured.glb",
         &scene,
         null, // Use default scene
     ) catch |err| {

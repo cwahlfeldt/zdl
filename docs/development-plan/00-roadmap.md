@@ -9,7 +9,7 @@ This document outlines the comprehensive development plan to evolve ZDL from its
 | Phase | Status | Progress |
 |-------|--------|----------|
 | Phase 1: Core Infrastructure | ✅ Complete | 3/3 complete |
-| Phase 2: Content Creation | 🔄 In Progress | 1/3 complete |
+| Phase 2: Content Creation | ✅ Complete | 3/3 complete |
 | Phase 3: Visual Quality | Not Started | 0/3 |
 | Phase 4: Interactivity | Not Started | 0/3 |
 | Phase 5: Extensibility | Not Started | 0/2 |
@@ -33,6 +33,8 @@ ZDL is a Zig-based 3D game engine built on SDL3 with the following implemented f
 - **Scene Serialization** (src/serialization/) - JSON save/load for scenes with hierarchy and asset references
 - **Debug & Profiling** (src/debug/) - Frame timing, zone profiling, visual debug primitives
 - **glTF Asset Loading** (src/assets/gltf/) - Load .gltf/.glb files with meshes, textures, and scene hierarchy
+- **Animation System** (src/animation/) - Skeletal animation with keyframe sampling, blending, and GPU skinning
+- **UI System** (src/ui/) - Immediate-mode UI with batched 2D rendering, built-in font, themed widgets
 
 **Architecture Strengths:**
 
@@ -87,8 +89,8 @@ Systems for creating game content.
 | System                                         | Priority | Effort | Dependencies   | Status |
 | ---------------------------------------------- | -------- | ------ | -------------- | ------ |
 | [glTF Asset Loading](02-gltf-asset-loading.md) | Critical | High   | Asset Pipeline | ✅ Complete |
-| [Animation System](10-animation-system.md)     | Critical | High   | glTF Loading   | Not Started |
-| [UI System](01-ui-system.md)                   | High     | High   | None           | Not Started |
+| [Animation System](10-animation-system.md)     | Critical | High   | glTF Loading   | ✅ Complete |
+| [UI System](01-ui-system.md)                   | High     | High   | None           | ✅ Complete |
 
 **glTF Asset Loading Implementation Notes:**
 - Location: `src/assets/gltf/`
@@ -99,6 +101,31 @@ Systems for creating game content.
 - Base color texture extraction from PBR materials
 - AssetManager integration: `loadGLTF()`, `importGLTFScene()`
 - Example: `examples/gltf_demo/` demonstrates loading and rendering glTF models
+
+**Animation System Implementation Notes:**
+- Location: `src/animation/`
+- Skeleton: Bone hierarchy with parent-child relationships, inverse bind matrices
+- AnimationClip: Keyframe data with translation/rotation/scale channels
+- AnimationChannel: Per-bone animation with linear, step, and cubic spline interpolation
+- Animator: Multi-layer animation playback with crossfade and blending
+- AnimatorComponent: ECS component wrapper for Animator
+- AnimationSystem: Updates all animators each frame
+- SkinnedMesh: Vertex format with bone indices/weights, GPU buffer management
+- BoneMatrixBuffer: GPU buffer for skinning matrices
+- glTF animation loading: `src/assets/gltf/animation_loader.zig`
+- GPU skinning shaders: `assets/shaders/skinned_vertex.vert`, `skinned_shaders.metal`
+- Example: `examples/animation_demo/` demonstrates skeletal animation
+
+**UI System Implementation Notes:**
+- Location: `src/ui/`
+- UIContext: Immediate-mode state management with hot/active/focus widget tracking
+- UIRenderer: Batched 2D renderer with orthographic projection, alpha blending
+- Vertex2D: Position, UV, Color vertex format for efficient 2D drawing
+- Font: Built-in 5x7 bitmap font for ASCII 32-127, BMFont loading support
+- Theme/Style: Dark and Light themes, per-widget style with hover/active states
+- Widgets: Panel, Label, Button, Slider, Checkbox, Separator, Spacing
+- Shaders: `assets/shaders/ui.vert`, `ui.frag`, `ui.metal`
+- Example: `examples/ui_demo/` demonstrates UI with 3D scene, sliders, checkboxes
 
 **Rationale:** glTF support unlocks industry-standard 3D content. Animation brings characters to life. UI enables menus, HUDs, and debug interfaces.
 
@@ -210,17 +237,17 @@ _Note: Estimates assume full-time development by a single experienced developer.
 
 _Outcome: Efficient development workflow with visual debugging, optimized assets, and save/load capability._
 
-### Milestone 2: Content Pipeline ← **IN PROGRESS**
+### Milestone 2: Content Pipeline ✅ COMPLETE
 
 4. ~~glTF Asset Loading (02)~~ ✅ **COMPLETE**
-5. Animation System (10) ← **NEXT**
-6. UI System (01)
+5. ~~Animation System (10)~~ ✅ **COMPLETE**
+6. ~~UI System (01)~~ ✅ **COMPLETE**
 
 _Outcome: Load industry-standard 3D models with animations. Create menus and HUDs._
 
-### Milestone 3: Visual Fidelity
+### Milestone 3: Visual Fidelity ← **NEXT**
 
-7. Advanced Rendering/PBR (03)
+7. Advanced Rendering/PBR (03) ← **NEXT**
 8. Skybox & Environment (04)
 9. Particle System (15)
 

@@ -15,6 +15,8 @@ pub const SceneData = types.SceneData;
 pub const MeshData = types.MeshData;
 pub const MaterialData = types.MaterialData;
 pub const PrimitiveMode = types.PrimitiveMode;
+pub const AnimationData = types.AnimationData;
+pub const SkinData = types.SkinData;
 
 // Sub-modules
 pub const binary = @import("binary.zig");
@@ -23,6 +25,7 @@ pub const accessor = @import("accessor.zig");
 pub const mesh_import = @import("mesh_import.zig");
 pub const texture_import = @import("texture_import.zig");
 pub const scene_import = @import("scene_import.zig");
+pub const animation_loader = @import("animation_loader.zig");
 
 const Scene = @import("../../ecs/scene.zig").Scene;
 const Entity = @import("../../ecs/entity.zig").Entity;

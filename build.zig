@@ -127,6 +127,50 @@ pub fn build(b: *std.Build) void {
     const run_gltf_step = b.step("run-gltf", "Run glTF Demo example");
     run_gltf_step.dependOn(&run_gltf_demo.step);
 
+    // Build Animation Demo example
+    const animation_demo = b.addExecutable(.{
+        .name = "animation_demo",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("examples/animation_demo/main.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    animation_demo.root_module.addImport("sdl3", sdl3.module("sdl3"));
+    animation_demo.root_module.addImport("engine", engine_module);
+    b.installArtifact(animation_demo);
+
+    // Animation Demo run step
+    const run_animation_demo = b.addRunArtifact(animation_demo);
+    run_animation_demo.step.dependOn(b.getInstallStep());
+    if (b.args) |args| {
+        run_animation_demo.addArgs(args);
+    }
+    const run_animation_step = b.step("run-animation", "Run Animation Demo example");
+    run_animation_step.dependOn(&run_animation_demo.step);
+
+    // Build UI Demo example
+    const ui_demo = b.addExecutable(.{
+        .name = "ui_demo",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("examples/ui_demo/main.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    ui_demo.root_module.addImport("sdl3", sdl3.module("sdl3"));
+    ui_demo.root_module.addImport("engine", engine_module);
+    b.installArtifact(ui_demo);
+
+    // UI Demo run step
+    const run_ui_demo = b.addRunArtifact(ui_demo);
+    run_ui_demo.step.dependOn(b.getInstallStep());
+    if (b.args) |args| {
+        run_ui_demo.addArgs(args);
+    }
+    const run_ui_step = b.step("run-ui", "Run UI Demo example");
+    run_ui_step.dependOn(&run_ui_demo.step);
+
     // Note: Shader compilation is handled by the asset pipeline tool (zdl-assets)
     // Run: zig build assets -- build --source=src/shaders --output=src/shaders
     // Or:  ./zig-out/bin/zdl-assets build --source=assets --output=build/assets

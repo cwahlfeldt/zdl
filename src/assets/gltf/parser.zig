@@ -20,6 +20,13 @@ const BufferTarget = types.BufferTarget;
 const AlphaMode = types.AlphaMode;
 const TextureInfo = types.TextureInfo;
 const CameraType = types.CameraType;
+const AnimationData = types.AnimationData;
+const AnimationChannelData = types.AnimationChannelData;
+const AnimationChannelTarget = types.AnimationChannelTarget;
+const AnimationSamplerData = types.AnimationSamplerData;
+const AnimationInterpolation = types.AnimationInterpolation;
+const AnimationTargetPath = types.AnimationTargetPath;
+const SkinData = types.SkinData;
 
 /// Parse glTF JSON and populate asset structure
 /// Does not load external buffers - call loadBuffers() separately
@@ -98,6 +105,16 @@ pub fn parseJSON(allocator: std.mem.Allocator, json_data: []const u8, asset: *GL
     // Parse scenes
     if (root.object.get("scenes")) |scenes_array| {
         asset.scenes = try parseScenes(allocator, scenes_array);
+    }
+
+    // Parse animations
+    if (root.object.get("animations")) |animations_array| {
+        asset.animations = try parseAnimations(allocator, animations_array);
+    }
+
+    // Parse skins
+    if (root.object.get("skins")) |skins_array| {
+        asset.skins = try parseSkins(allocator, skins_array);
     }
 
     // Parse default scene
@@ -485,6 +502,85 @@ fn parseScenes(allocator: std.mem.Allocator, array: std.json.Value) ![]SceneData
         result[i] = .{
             .name = if (obj.get("name")) |v| v.string else null,
             .nodes = nodes,
+        };
+    }
+
+    return result;
+}
+
+fn parseAnimations(allocator: std.mem.Allocator, array: std.json.Value) ![]AnimationData {
+    const items = array.array.items;
+    var result = try allocator.alloc(AnimationData, items.len);
+
+    for (items, 0..) |item, i| {
+        const obj = item.object;
+
+        // Parse samplers
+        var samplers: []AnimationSamplerData = &.{};
+        if (obj.get("samplers")) |s| {
+            samplers = try allocator.alloc(AnimationSamplerData, s.array.items.len);
+            for (s.array.items, 0..) |sampler, j| {
+                const sampler_obj = sampler.object;
+                samplers[j] = .{
+                    .input = @intCast(sampler_obj.get("input").?.integer),
+                    .output = @intCast(sampler_obj.get("output").?.integer),
+                    .interpolation = if (sampler_obj.get("interpolation")) |interp|
+                        AnimationInterpolation.fromString(interp.string)
+                    else
+                        .linear,
+                };
+            }
+        }
+
+        // Parse channels
+        var channels: []AnimationChannelData = &.{};
+        if (obj.get("channels")) |c| {
+            channels = try allocator.alloc(AnimationChannelData, c.array.items.len);
+            for (c.array.items, 0..) |channel, j| {
+                const channel_obj = channel.object;
+                const target_obj = channel_obj.get("target").?.object;
+
+                channels[j] = .{
+                    .sampler = @intCast(channel_obj.get("sampler").?.integer),
+                    .target = .{
+                        .node = if (target_obj.get("node")) |n| @intCast(n.integer) else null,
+                        .path = AnimationTargetPath.fromString(target_obj.get("path").?.string) orelse .translation,
+                    },
+                };
+            }
+        }
+
+        result[i] = .{
+            .name = if (obj.get("name")) |v| v.string else null,
+            .channels = channels,
+            .samplers = samplers,
+        };
+    }
+
+    return result;
+}
+
+fn parseSkins(allocator: std.mem.Allocator, array: std.json.Value) ![]SkinData {
+    const items = array.array.items;
+    var result = try allocator.alloc(SkinData, items.len);
+
+    for (items, 0..) |item, i| {
+        const obj = item.object;
+
+        // Parse joints array
+        var joints: []usize = &.{};
+        if (obj.get("joints")) |j| {
+            joints = try allocator.alloc(usize, j.array.items.len);
+            for (j.array.items, 0..) |joint, k| {
+                joints[k] = @intCast(joint.integer);
+            }
+        }
+
+        result[i] = .{
+            .name = if (obj.get("name")) |v| v.string else null,
+            .inverse_bind_matrices = if (obj.get("inverseBindMatrices")) |v| @intCast(v.integer) else null,
+            .skeleton = if (obj.get("skeleton")) |v| @intCast(v.integer) else null,
+            .joints = joints,
         };
     }
 

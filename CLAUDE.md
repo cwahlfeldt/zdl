@@ -62,7 +62,20 @@ src/
 │   ├── debug_draw.zig    # Visual debug rendering (lines, boxes, spheres)
 │   └── stats_overlay.zig # FPS, memory, draw call statistics
 ├── assets/           # Asset management
-│   └── asset_manager.zig    # Runtime asset loading/caching
+│   ├── asset_manager.zig    # Runtime asset loading/caching
+│   └── gltf/                # glTF loader
+│       ├── gltf.zig         # Module exports, GLTFLoader
+│       ├── parser.zig       # JSON/GLB parsing
+│       ├── animation_loader.zig # Skeleton/animation loading
+│       └── types.zig        # Data types
+├── animation/        # Animation system
+│   ├── animation.zig        # Module exports
+│   ├── skeleton.zig         # Bone hierarchy
+│   ├── animation_clip.zig   # Keyframe data
+│   ├── animator.zig         # Playback/blending
+│   ├── animator_component.zig # ECS component
+│   ├── animation_system.zig # ECS system
+│   └── skinned_mesh.zig     # GPU skinning support
 ├── input/            # Input system
 ├── math/             # Vec2, Vec3, Vec4, Mat4, Quat
 ├── resources/        # Mesh, Texture, Primitives
@@ -75,12 +88,15 @@ tools/
 └── asset_pipeline/   # Asset build tool (zdl-assets)
 
 assets/
-└── scenes/           # Example scene files
+├── scenes/           # Example scene files
+└── shaders/          # GPU shaders (including skinned_vertex.vert)
 
 examples/
 ├── cube3d/           # Simple 3D cube demo
 ├── scene_demo/       # FPS camera with scene hierarchy
-└── debug_demo/       # Debug visualization and profiling demo
+├── debug_demo/       # Debug visualization and profiling demo
+├── gltf_demo/        # glTF model loading demo
+└── animation_demo/   # Skeletal animation demo
 ```
 
 ### Core Components
@@ -258,6 +274,71 @@ const text = stats.formatTitleString(&buffer);
 ```
 
 See `examples/debug_demo/` for a complete example.
+
+### Animation System
+
+The animation module provides skeletal animation support:
+
+**Skeleton** - Bone hierarchy for characters:
+```zig
+const Skeleton = engine.Skeleton;
+const NO_BONE = engine.animation.NO_BONE;
+
+var skeleton = try Skeleton.init(allocator, 3); // 3 bones
+defer skeleton.deinit();
+
+// Set up bones: name, parent index, local transform
+try skeleton.setBone(0, "root", NO_BONE, Transform.init());
+try skeleton.setBone(1, "spine", 0, Transform.withPosition(Vec3.init(0, 1, 0)));
+try skeleton.setBone(2, "head", 1, Transform.withPosition(Vec3.init(0, 0.5, 0)));
+
+try skeleton.computeRootBones();
+```
+
+**AnimationClip** - Keyframe animation data:
+```zig
+const AnimationClip = engine.AnimationClip;
+const AnimationChannel = engine.animation.AnimationChannel;
+
+var clip = try AnimationClip.init(allocator, "walk", 1); // 1 channel
+defer clip.deinit();
+
+// Create rotation channel for bone 0
+clip.channels[0] = try AnimationChannel.init(allocator, 0, .rotation, 3);
+clip.channels[0].times[0] = 0.0;
+clip.channels[0].times[1] = 0.5;
+clip.channels[0].times[2] = 1.0;
+clip.channels[0].rotation_values.?[0] = Quat.identity();
+clip.channels[0].rotation_values.?[1] = Quat.fromAxisAngle(Vec3.init(0, 1, 0), 0.5);
+clip.channels[0].rotation_values.?[2] = Quat.identity();
+
+clip.computeDuration();
+```
+
+**Animator** - Animation playback and blending:
+```zig
+const Animator = engine.Animator;
+
+var animator = try Animator.init(allocator, &skeleton);
+defer animator.deinit();
+
+try animator.addClip("walk", &walk_clip);
+try animator.addClip("idle", &idle_clip);
+
+// Play animation
+_ = animator.play("walk");
+
+// Crossfade to another animation
+_ = animator.crossFade("idle", 0.3); // 0.3 second transition
+
+// In update loop:
+animator.update(delta_time);
+
+// Get skinning matrices for GPU
+const matrices = animator.getSkinningMatrices();
+```
+
+See `examples/animation_demo/` for a complete example.
 
 ## Creating a New Game
 

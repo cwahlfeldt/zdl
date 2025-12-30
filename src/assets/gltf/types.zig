@@ -310,6 +310,81 @@ pub const CameraType = enum {
     orthographic,
 };
 
+/// Animation interpolation type
+pub const AnimationInterpolation = enum {
+    linear,
+    step,
+    cubic_spline,
+
+    pub fn fromString(str: []const u8) AnimationInterpolation {
+        if (std.mem.eql(u8, str, "STEP")) return .step;
+        if (std.mem.eql(u8, str, "CUBICSPLINE")) return .cubic_spline;
+        return .linear;
+    }
+};
+
+/// Animation channel target path
+pub const AnimationTargetPath = enum {
+    translation,
+    rotation,
+    scale,
+    weights,
+
+    pub fn fromString(str: []const u8) ?AnimationTargetPath {
+        const map = std.StaticStringMap(AnimationTargetPath).initComptime(.{
+            .{ "translation", .translation },
+            .{ "rotation", .rotation },
+            .{ "scale", .scale },
+            .{ "weights", .weights },
+        });
+        return map.get(str);
+    }
+};
+
+/// Animation sampler (input/output pair)
+pub const AnimationSamplerData = struct {
+    /// Accessor index for input (keyframe times)
+    input: usize,
+    /// Accessor index for output (keyframe values)
+    output: usize,
+    /// Interpolation method
+    interpolation: AnimationInterpolation,
+};
+
+/// Animation channel target
+pub const AnimationChannelTarget = struct {
+    /// Node index being animated
+    node: ?usize,
+    /// Property being animated
+    path: AnimationTargetPath,
+};
+
+/// Animation channel (connects sampler to target)
+pub const AnimationChannelData = struct {
+    /// Index into animation's samplers array
+    sampler: usize,
+    /// Target of the animation
+    target: AnimationChannelTarget,
+};
+
+/// Complete animation data
+pub const AnimationData = struct {
+    name: ?[]const u8,
+    channels: []AnimationChannelData,
+    samplers: []AnimationSamplerData,
+};
+
+/// Skin data (skeleton for skeletal animation)
+pub const SkinData = struct {
+    name: ?[]const u8,
+    /// Accessor index for inverse bind matrices (one per joint)
+    inverse_bind_matrices: ?usize,
+    /// Skeleton root node (optional, for visualization)
+    skeleton: ?usize,
+    /// Joint node indices (in order)
+    joints: []usize,
+};
+
 /// Container for a loaded glTF asset
 pub const GLTFAsset = struct {
     allocator: std.mem.Allocator,
@@ -335,6 +410,8 @@ pub const GLTFAsset = struct {
     nodes: []NodeData,
     scenes: []SceneData,
     cameras: []CameraData,
+    animations: []AnimationData,
+    skins: []SkinData,
     default_scene: ?usize,
 
     /// Converted GPU resources
@@ -364,6 +441,8 @@ pub const GLTFAsset = struct {
             .nodes = &.{},
             .scenes = &.{},
             .cameras = &.{},
+            .animations = &.{},
+            .skins = &.{},
             .default_scene = null,
             .gpu_meshes = .{},
             .gpu_textures = .{},
@@ -425,6 +504,19 @@ pub const GLTFAsset = struct {
         if (self.images.len > 0) self.allocator.free(self.images);
         if (self.samplers.len > 0) self.allocator.free(self.samplers);
         if (self.cameras.len > 0) self.allocator.free(self.cameras);
+
+        // Free animations
+        for (self.animations) |anim| {
+            if (anim.channels.len > 0) self.allocator.free(anim.channels);
+            if (anim.samplers.len > 0) self.allocator.free(anim.samplers);
+        }
+        if (self.animations.len > 0) self.allocator.free(self.animations);
+
+        // Free skins
+        for (self.skins) |skin| {
+            if (skin.joints.len > 0) self.allocator.free(skin.joints);
+        }
+        if (self.skins.len > 0) self.allocator.free(self.skins);
 
         if (self.source_path.len > 0) self.allocator.free(self.source_path);
         if (self.base_path.len > 0) self.allocator.free(self.base_path);

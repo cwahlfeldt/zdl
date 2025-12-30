@@ -58,3 +58,23 @@ pub const DebugDraw = debug.DebugDraw;
 pub const Profiler = debug.Profiler;
 pub const StatsOverlay = debug.StatsOverlay;
 pub const scopedZone = debug.scopedZone;
+
+// Animation
+pub const animation = @import("animation/animation.zig");
+pub const Skeleton = animation.Skeleton;
+pub const AnimationClip = animation.AnimationClip;
+pub const Animator = animation.Animator;
+pub const AnimatorComponent = animation.AnimatorComponent;
+pub const AnimationSystem = animation.AnimationSystem;
+pub const SkinnedMesh = animation.SkinnedMesh;
+pub const SkinnedVertex = animation.SkinnedVertex;
+pub const BoneMatrixBuffer = animation.BoneMatrixBuffer;
+
+// UI System
+pub const ui = @import("ui/ui.zig");
+pub const UIContext = ui.UIContext;
+pub const UIRenderer = ui.UIRenderer;
+pub const Font = ui.Font;
+pub const Theme = ui.Theme;
+pub const Style = ui.Style;
+pub const Rect = ui.Rect;

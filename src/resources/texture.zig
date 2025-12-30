@@ -1,9 +1,11 @@
 const std = @import("std");
 const sdl = @import("sdl3");
+const Color = @import("../engine/engine.zig").Color;
 
 /// Texture resource that wraps SDL GPU texture
 pub const Texture = struct {
     gpu_texture: sdl.gpu.Texture,
+    sampler: ?sdl.gpu.Sampler = null,
     width: u32,
     height: u32,
 
@@ -283,5 +285,102 @@ pub const Texture = struct {
 
     pub fn deinit(self: Texture, device: *sdl.gpu.Device) void {
         device.releaseTexture(self.gpu_texture);
+        if (self.sampler) |s| device.releaseSampler(s);
+    }
+
+    /// Alias for loadFromFile for consistency
+    pub fn load(device: *sdl.gpu.Device, path: []const u8) !Texture {
+        return loadFromFile(device, path);
+    }
+
+    /// Create a solid color texture with its own sampler
+    pub fn createSolid(device: *sdl.gpu.Device, width: u32, height: u32, color: Color) !Texture {
+        const color_bytes = [4]u8{
+            @intFromFloat(color.r * 255.0),
+            @intFromFloat(color.g * 255.0),
+            @intFromFloat(color.b * 255.0),
+            @intFromFloat(color.a * 255.0),
+        };
+
+        var tex = try createColored(device, width, height, color_bytes);
+
+        // Create a sampler for this texture
+        tex.sampler = try device.createSampler(.{
+            .min_filter = .nearest,
+            .mag_filter = .nearest,
+            .mipmap_mode = .nearest,
+            .address_mode_u = .clamp_to_edge,
+            .address_mode_v = .clamp_to_edge,
+            .address_mode_w = .clamp_to_edge,
+        });
+
+        return tex;
+    }
+
+    /// Create a texture from raw RGBA pixel data with its own sampler
+    pub fn createFromRGBA(device: *sdl.gpu.Device, width: u32, height: u32, pixels: []const u8) !Texture {
+        const gpu_texture = try device.createTexture(.{
+            .texture_type = .two_dimensional,
+            .format = .r8g8b8a8_unorm,
+            .width = width,
+            .height = height,
+            .layer_count_or_depth = 1,
+            .num_levels = 1,
+            .sample_count = .no_multisampling,
+            .usage = .{ .sampler = true },
+        });
+        errdefer device.releaseTexture(gpu_texture);
+
+        const transfer_size = width * height * 4;
+        const transfer_buffer = try device.createTransferBuffer(.{
+            .usage = .upload,
+            .size = transfer_size,
+        });
+        defer device.releaseTransferBuffer(transfer_buffer);
+
+        const transfer_data = try device.mapTransferBuffer(transfer_buffer, false);
+        const dest = @as([*]u8, @ptrCast(transfer_data));
+        @memcpy(dest[0..transfer_size], pixels[0..transfer_size]);
+        device.unmapTransferBuffer(transfer_buffer);
+
+        const cmd = try device.acquireCommandBuffer();
+        {
+            const copy_pass = cmd.beginCopyPass();
+            defer copy_pass.end();
+
+            copy_pass.uploadToTexture(
+                .{ .transfer_buffer = transfer_buffer, .offset = 0 },
+                .{
+                    .texture = gpu_texture,
+                    .mip_level = 0,
+                    .layer = 0,
+                    .x = 0,
+                    .y = 0,
+                    .z = 0,
+                    .width = width,
+                    .height = height,
+                    .depth = 1,
+                },
+                false,
+            );
+        }
+        try cmd.submit();
+
+        // Create a sampler for this texture
+        const sampler = try device.createSampler(.{
+            .min_filter = .nearest,
+            .mag_filter = .nearest,
+            .mipmap_mode = .nearest,
+            .address_mode_u = .clamp_to_edge,
+            .address_mode_v = .clamp_to_edge,
+            .address_mode_w = .clamp_to_edge,
+        });
+
+        return .{
+            .gpu_texture = gpu_texture,
+            .sampler = sampler,
+            .width = width,
+            .height = height,
+        };
     }
 };
