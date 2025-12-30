@@ -12,7 +12,7 @@ const TransformComponent = components.TransformComponent;
 const CameraComponent = components.CameraComponent;
 const MeshRendererComponent = components.MeshRendererComponent;
 const LightComponent = components.LightComponent;
-const FpsCameraController = components.FpsCameraController;
+const FpvCameraController = components.FpvCameraController;
 
 /// Scene container that owns all entities and components.
 /// Provides the primary API for creating and managing the game world.
@@ -27,7 +27,7 @@ pub const Scene = struct {
     cameras: ComponentStorage(CameraComponent),
     mesh_renderers: ComponentStorage(MeshRendererComponent),
     lights: ComponentStorage(LightComponent),
-    fps_controllers: ComponentStorage(FpsCameraController),
+    fps_controllers: ComponentStorage(FpvCameraController),
 
     /// Currently active camera entity
     active_camera: Entity,
@@ -43,7 +43,7 @@ pub const Scene = struct {
             .cameras = ComponentStorage(CameraComponent).init(allocator),
             .mesh_renderers = ComponentStorage(MeshRendererComponent).init(allocator),
             .lights = ComponentStorage(LightComponent).init(allocator),
-            .fps_controllers = ComponentStorage(FpsCameraController).init(allocator),
+            .fps_controllers = ComponentStorage(FpvCameraController).init(allocator),
             .active_camera = Entity.invalid,
         };
     }
@@ -124,7 +124,7 @@ pub const Scene = struct {
             try self.mesh_renderers.add(entity, component);
         } else if (T == LightComponent) {
             try self.lights.add(entity, component);
-        } else if (T == FpsCameraController) {
+        } else if (T == FpvCameraController) {
             try self.fps_controllers.add(entity, component);
         } else {
             @compileError("Unknown component type: " ++ @typeName(T));
@@ -148,7 +148,7 @@ pub const Scene = struct {
             return self.mesh_renderers.remove(entity);
         } else if (T == LightComponent) {
             return self.lights.remove(entity);
-        } else if (T == FpsCameraController) {
+        } else if (T == FpvCameraController) {
             return self.fps_controllers.remove(entity);
         } else {
             @compileError("Unknown component type: " ++ @typeName(T));
@@ -165,7 +165,7 @@ pub const Scene = struct {
             return self.mesh_renderers.get(entity);
         } else if (T == LightComponent) {
             return self.lights.get(entity);
-        } else if (T == FpsCameraController) {
+        } else if (T == FpvCameraController) {
             return self.fps_controllers.get(entity);
         } else {
             @compileError("Unknown component type: " ++ @typeName(T));
@@ -182,7 +182,7 @@ pub const Scene = struct {
             return self.mesh_renderers.has(entity);
         } else if (T == LightComponent) {
             return self.lights.has(entity);
-        } else if (T == FpsCameraController) {
+        } else if (T == FpvCameraController) {
             return self.fps_controllers.has(entity);
         } else {
             @compileError("Unknown component type: " ++ @typeName(T));

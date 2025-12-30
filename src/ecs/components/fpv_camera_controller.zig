@@ -5,10 +5,10 @@ const Quat = math.Quat;
 const Input = @import("../../input/input.zig").Input;
 const TransformComponent = @import("transform_component.zig").TransformComponent;
 
-/// FPS-style camera controller component.
+/// First-Person View camera controller component.
 /// Handles mouse look and WASD movement for first-person camera control.
 /// Requires the entity to also have a TransformComponent and CameraComponent.
-pub const FpsCameraController = struct {
+pub const FpvCameraController = struct {
     /// Yaw angle (rotation around Y axis) in radians
     yaw: f32,
     /// Pitch angle (rotation around X axis) in radians
@@ -29,12 +29,12 @@ pub const FpsCameraController = struct {
     };
 
     /// Create an FPS camera controller with default settings.
-    pub fn init() FpsCameraController {
+    pub fn init() FpvCameraController {
         return initWithConfig(.{});
     }
 
     /// Create an FPS camera controller with custom settings.
-    pub fn initWithConfig(config: Config) FpsCameraController {
+    pub fn initWithConfig(config: Config) FpvCameraController {
         return .{
             .yaw = config.initial_yaw,
             .pitch = config.initial_pitch,
@@ -47,7 +47,7 @@ pub const FpsCameraController = struct {
     /// Update the camera controller. Call this every frame.
     /// Returns true if mouse capture state should be toggled on.
     pub fn update(
-        self: *FpsCameraController,
+        self: *FpvCameraController,
         transform: *TransformComponent,
         input: *Input,
         delta_time: f32,
@@ -104,7 +104,7 @@ pub const FpsCameraController = struct {
     }
 
     /// Set yaw and pitch from a direction vector (useful for initialization).
-    pub fn lookAt(self: *FpsCameraController, direction: Vec3) void {
+    pub fn lookAt(self: *FpvCameraController, direction: Vec3) void {
         // Calculate yaw from XZ plane
         self.yaw = std.math.atan2(direction.x, -direction.z);
         // Calculate pitch from Y component
@@ -113,7 +113,7 @@ pub const FpsCameraController = struct {
     }
 
     /// Get the forward direction vector based on current yaw/pitch.
-    pub fn getForward(self: FpsCameraController) Vec3 {
+    pub fn getForward(self: FpvCameraController) Vec3 {
         const yaw_quat = Quat.fromAxisAngle(Vec3.init(0, 1, 0), self.yaw);
         const pitch_quat = Quat.fromAxisAngle(Vec3.init(1, 0, 0), self.pitch);
         const rotation = yaw_quat.mul(pitch_quat);

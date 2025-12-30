@@ -13,7 +13,7 @@ pub const CameraComponent = components.CameraComponent;
 pub const MeshRendererComponent = components.MeshRendererComponent;
 pub const LightComponent = components.LightComponent;
 pub const LightType = components.LightType;
-pub const FpsCameraController = components.FpsCameraController;
+pub const FpvCameraController = components.FpvCameraController;
 
 // Systems
 pub const systems = @import("systems/systems.zig");

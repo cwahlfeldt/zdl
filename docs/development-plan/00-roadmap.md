@@ -8,8 +8,8 @@ This document outlines the comprehensive development plan to evolve ZDL from its
 
 | Phase | Status | Progress |
 |-------|--------|----------|
-| Phase 1: Core Infrastructure | In Progress | 1/3 complete |
-| Phase 2: Content Creation | Not Started | 0/3 |
+| Phase 1: Core Infrastructure | ✅ Complete | 3/3 complete |
+| Phase 2: Content Creation | 🔄 In Progress | 1/3 complete |
 | Phase 3: Visual Quality | Not Started | 0/3 |
 | Phase 4: Interactivity | Not Started | 0/3 |
 | Phase 5: Extensibility | Not Started | 0/2 |
@@ -26,10 +26,13 @@ ZDL is a Zig-based 3D game engine built on SDL3 with the following implemented f
 - Parent-child entity hierarchy with world transform propagation
 - Perspective camera with quaternion-based rotation
 - Mesh rendering with multiple meshes and textures
-- FPS-style camera controller
+- FPV (First-Person View) camera controller
 - Basic audio (WAV playback)
 - Cross-platform support (Linux/Vulkan, macOS/Metal)
 - **Asset Pipeline** (tools/asset_pipeline/) - CLI tool, shader/texture processing, incremental builds
+- **Scene Serialization** (src/serialization/) - JSON save/load for scenes with hierarchy and asset references
+- **Debug & Profiling** (src/debug/) - Frame timing, zone profiling, visual debug primitives
+- **glTF Asset Loading** (src/assets/gltf/) - Load .gltf/.glb files with meshes, textures, and scene hierarchy
 
 **Architecture Strengths:**
 
@@ -47,8 +50,8 @@ Essential systems that other features depend on.
 | System                                           | Priority | Effort | Dependencies   | Status |
 | ------------------------------------------------ | -------- | ------ | -------------- | ------ |
 | [Asset Pipeline](12-asset-pipeline.md)           | Critical | High   | None           | ✅ Complete |
-| [Scene Serialization](08-scene-serialization.md) | Critical | Medium | Asset Pipeline | 🔲 Next |
-| [Debug & Profiling](13-debug-profiling.md)       | High     | Medium | None           | 🔲 Pending |
+| [Scene Serialization](08-scene-serialization.md) | Critical | Medium | Asset Pipeline | ✅ Complete |
+| [Debug & Profiling](13-debug-profiling.md)       | High     | Medium | None           | ✅ Complete |
 
 **Asset Pipeline Implementation Notes:**
 - Location: `tools/asset_pipeline/`
@@ -59,17 +62,43 @@ Essential systems that other features depend on.
 - Runtime AssetManager: `src/assets/asset_manager.zig`
 - Shader compilation removed from build.zig - now handled by pipeline
 
+**Scene Serialization Implementation Notes:**
+- Location: `src/serialization/`
+- SceneSerializer: JSON save/load with `serializeToJson()`, `saveToFile()`, `loadFromFile()`
+- Supports all built-in components: Transform, Camera, MeshRenderer, Light, FpvCameraController
+- Entity hierarchy preserved via parent_id references
+- Asset references resolved via AssetManager integration
+- Example scene: `assets/scenes/example.scene.json`
+
+**Debug & Profiling Implementation Notes:**
+- Location: `src/debug/`
+- Profiler: Frame timing with ring buffer, CPU zone profiling via scopedZone(), counter tracking
+- DebugDraw: Line rendering pipeline, visual primitives (line, wireBox, wireSphere, axes, grid, arrow)
+- StatsOverlay: FPS, memory, draw calls display, formatTitleString() for window title
+- Debug shaders: `assets/shaders/debug_line.vert/frag/metal`
+- Example: `examples/debug_demo/` demonstrates all debug features
+
 **Rationale:** These systems enable productive development of all other features. The asset pipeline provides optimized assets, serialization enables saving/loading, and debug tools accelerate iteration.
 
 ### Phase 2: Content Creation
 
 Systems for creating game content.
 
-| System                                         | Priority | Effort | Dependencies   |
-| ---------------------------------------------- | -------- | ------ | -------------- |
-| [glTF Asset Loading](02-gltf-asset-loading.md) | Critical | High   | Asset Pipeline |
-| [Animation System](10-animation-system.md)     | Critical | High   | glTF Loading   |
-| [UI System](01-ui-system.md)                   | High     | High   | None           |
+| System                                         | Priority | Effort | Dependencies   | Status |
+| ---------------------------------------------- | -------- | ------ | -------------- | ------ |
+| [glTF Asset Loading](02-gltf-asset-loading.md) | Critical | High   | Asset Pipeline | ✅ Complete |
+| [Animation System](10-animation-system.md)     | Critical | High   | glTF Loading   | Not Started |
+| [UI System](01-ui-system.md)                   | High     | High   | None           | Not Started |
+
+**glTF Asset Loading Implementation Notes:**
+- Location: `src/assets/gltf/`
+- GLTFLoader: Load `.gltf` (JSON + external .bin) and `.glb` (single binary) formats
+- Supports meshes with multiple primitives, converting to ZDL Vertex3D format
+- Embedded and external texture loading via SDL_image
+- Node hierarchy imported as ECS entities with TransformComponent
+- Base color texture extraction from PBR materials
+- AssetManager integration: `loadGLTF()`, `importGLTFScene()`
+- Example: `examples/gltf_demo/` demonstrates loading and rendering glTF models
 
 **Rationale:** glTF support unlocks industry-standard 3D content. Animation brings characters to life. UI enables menus, HUDs, and debug interfaces.
 
@@ -173,25 +202,18 @@ _Note: Estimates assume full-time development by a single experienced developer.
 
 ## Suggested Implementation Order
 
-### Milestone 1: Developer Experience
+### Milestone 1: Developer Experience ✅ COMPLETE
 
 1. ~~Asset Pipeline (12)~~ ✅ **COMPLETE**
-2. Scene Serialization (08) ← **NEXT**
-3. Debug & Profiling (13)
+2. ~~Scene Serialization (08)~~ ✅ **COMPLETE**
+3. ~~Debug & Profiling (13)~~ ✅ **COMPLETE**
 
 _Outcome: Efficient development workflow with visual debugging, optimized assets, and save/load capability._
 
-**Next Steps for Scene Serialization:**
-1. Component Registry - register built-in components with serialize/deserialize traits
-2. JSON Format - implement JSON scene writer/reader using Zig's std.json
-3. Asset References - resolve mesh/texture paths through AssetManager
-4. Scene Loading - parse JSON, create entities, restore hierarchy
-5. (Optional) Binary format for optimized loading
+### Milestone 2: Content Pipeline ← **IN PROGRESS**
 
-### Milestone 2: Content Pipeline
-
-4. glTF Asset Loading (02)
-5. Animation System (10)
+4. ~~glTF Asset Loading (02)~~ ✅ **COMPLETE**
+5. Animation System (10) ← **NEXT**
 6. UI System (01)
 
 _Outcome: Load industry-standard 3D models with animations. Create menus and HUDs._

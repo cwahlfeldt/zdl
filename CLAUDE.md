@@ -53,6 +53,16 @@ src/
 │   │   └── mesh_renderer.zig
 │   └── systems/      # ECS systems
 │       └── render_system.zig
+├── serialization/    # Scene serialization
+│   ├── serialization.zig    # Module exports
+│   └── scene_serializer.zig # JSON scene save/load
+├── debug/            # Debug and profiling tools
+│   ├── debug.zig         # Module exports
+│   ├── profiler.zig      # Frame timing and CPU zone profiling
+│   ├── debug_draw.zig    # Visual debug rendering (lines, boxes, spheres)
+│   └── stats_overlay.zig # FPS, memory, draw call statistics
+├── assets/           # Asset management
+│   └── asset_manager.zig    # Runtime asset loading/caching
 ├── input/            # Input system
 ├── math/             # Vec2, Vec3, Vec4, Mat4, Quat
 ├── resources/        # Mesh, Texture, Primitives
@@ -61,9 +71,16 @@ src/
 ├── audio/            # Audio system
 └── engine.zig        # Module exports
 
+tools/
+└── asset_pipeline/   # Asset build tool (zdl-assets)
+
+assets/
+└── scenes/           # Example scene files
+
 examples/
 ├── cube3d/           # Simple 3D cube demo
-└── scene_demo/       # FPS camera with scene hierarchy
+├── scene_demo/       # FPS camera with scene hierarchy
+└── debug_demo/       # Debug visualization and profiling demo
 ```
 
 ### Core Components
@@ -146,6 +163,101 @@ scene.setParent(child, cube);  // child now orbits with cube
 ### Rendering
 
 The `RenderSystem` automatically renders all `MeshRendererComponent` entities using the active camera. World transforms are computed from the scene hierarchy.
+
+### Scene Serialization
+
+Save and load scenes to/from JSON files:
+
+```zig
+const SceneSerializer = @import("engine").SceneSerializer;
+
+// Save a scene
+var serializer = SceneSerializer.initWithAssets(allocator, &asset_manager);
+try serializer.saveToFile(&scene, "my_scene.json");
+
+// Load a scene
+const loaded_scene = try serializer.loadFromFile("my_scene.json", null);
+defer {
+    loaded_scene.deinit();
+    allocator.destroy(loaded_scene);
+}
+```
+
+Scene files are JSON with the following structure:
+- `version`: Format version string
+- `active_camera_id`: Entity ID of active camera
+- `entities`: Array of serialized entities with components
+
+Supported components: Transform, Camera, MeshRenderer, Light, FpvCameraController.
+
+Example scene file: `assets/scenes/example.scene.json`
+
+### Debug and Profiling
+
+The debug module provides tools for development:
+
+**Profiler** - Frame timing and CPU zone profiling:
+```zig
+const Profiler = engine.Profiler;
+const scopedZone = engine.scopedZone;
+
+var profiler = try Profiler.init(allocator);
+defer profiler.deinit();
+
+// In game loop:
+profiler.beginFrame();
+defer profiler.endFrame();
+
+// Profile a code section:
+{
+    const zone = scopedZone(&profiler, "Physics");
+    defer zone.end();
+    // ... physics code ...
+}
+
+// Query stats:
+const fps = profiler.getFps();
+const frame_ms = profiler.getFrameTime();
+```
+
+**DebugDraw** - Visual debug primitives:
+```zig
+const DebugDraw = engine.DebugDraw;
+
+var debug_draw = DebugDraw.init(allocator);
+defer debug_draw.deinit(&eng.device);
+
+// Initialize GPU resources (after engine init):
+try debug_draw.initGpu(&eng.device, swapchain_format);
+
+// Draw debug shapes:
+debug_draw.line(from, to, Color.init(1, 0, 0, 1));
+debug_draw.wireBox(center, size, Color.init(0, 1, 0, 1));
+debug_draw.wireSphere(center, radius, Color.init(0, 0, 1, 1));
+debug_draw.axes(position, size);
+debug_draw.grid(center, size, divisions, color);
+debug_draw.arrow(from, to, color);
+
+// Render (in render pass):
+debug_draw.uploadVertexData(&eng.device);
+debug_draw.render(&eng.device, cmd, pass, view_proj);
+debug_draw.clear();
+```
+
+**StatsOverlay** - Performance statistics:
+```zig
+const StatsOverlay = engine.StatsOverlay;
+
+var stats = StatsOverlay.init(&profiler);
+stats.updateEntityCount(scene.entityCount());
+stats.recordDrawCall(vertex_count, index_count);
+
+// Get formatted stats:
+var buffer: [256]u8 = undefined;
+const text = stats.formatTitleString(&buffer);
+```
+
+See `examples/debug_demo/` for a complete example.
 
 ## Creating a New Game
 

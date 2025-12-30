@@ -12,7 +12,7 @@ const primitives = engine.primitives;
 const TransformComponent = engine.TransformComponent;
 const CameraComponent = engine.CameraComponent;
 const MeshRendererComponent = engine.MeshRendererComponent;
-const FpsCameraController = engine.FpsCameraController;
+const FpvCameraController = engine.FpvCameraController;
 
 // Game state stored externally (meshes need to outlive the scene)
 var cube_mesh: Mesh = undefined;
@@ -64,7 +64,7 @@ pub fn main() !void {
     try scene.addComponent(camera_entity, cam_transform);
 
     // Create FPS controller and sync its yaw/pitch with the lookAt direction
-    var fps_controller = FpsCameraController.init();
+    var fps_controller = FpvCameraController.init();
     fps_controller.lookAt(look_dir);
     try scene.addComponent(camera_entity, fps_controller);
 
@@ -121,7 +121,7 @@ fn update(eng: *Engine, scene: *Scene, input: *Input, delta_time: f32) !void {
     }
 
     // FPS Camera controls via controller component
-    if (scene.getComponent(FpsCameraController, camera_entity)) |controller| {
+    if (scene.getComponent(FpvCameraController, camera_entity)) |controller| {
         if (scene.getComponent(TransformComponent, camera_entity)) |cam_transform| {
             if (controller.update(cam_transform, input, delta_time)) {
                 eng.setMouseCapture(true);

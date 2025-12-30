@@ -2,6 +2,11 @@ const std = @import("std");
 const sdl = @import("sdl3");
 const Mesh = @import("../resources/mesh.zig").Mesh;
 const Texture = @import("../resources/texture.zig").Texture;
+pub const gltf = @import("gltf/gltf.zig");
+const GLTFAsset = gltf.GLTFAsset;
+const GLTFLoader = gltf.GLTFLoader;
+const Scene = @import("../ecs/scene.zig").Scene;
+const Entity = @import("../ecs/entity.zig").Entity;
 
 /// Runtime asset manager for loading and caching game assets
 /// Provides a central point for asset lifecycle management and caching
@@ -15,6 +20,9 @@ pub const AssetManager = struct {
     /// Cached meshes by path
     meshes: std.StringHashMap(*Mesh),
 
+    /// Cached glTF assets by path
+    gltf_assets: std.StringHashMap(*GLTFAsset),
+
     /// Base path for asset loading
     base_path: []const u8,
 
@@ -27,6 +35,7 @@ pub const AssetManager = struct {
             .device = device,
             .textures = std.StringHashMap(*Texture).init(allocator),
             .meshes = std.StringHashMap(*Mesh).init(allocator),
+            .gltf_assets = std.StringHashMap(*GLTFAsset).init(allocator),
             .base_path = "",
         };
     }
@@ -42,26 +51,38 @@ pub const AssetManager = struct {
             .device = device,
             .textures = std.StringHashMap(*Texture).init(allocator),
             .meshes = std.StringHashMap(*Mesh).init(allocator),
+            .gltf_assets = std.StringHashMap(*GLTFAsset).init(allocator),
             .base_path = try allocator.dupe(u8, base_path),
         };
     }
 
     /// Deinitialize and free all cached assets
     pub fn deinit(self: *Self) void {
-        // Free all cached textures
-        var tex_it = self.textures.iterator();
-        while (tex_it.next()) |entry| {
+        // Free all cached glTF assets
+        var gltf_it = self.gltf_assets.iterator();
+        while (gltf_it.next()) |entry| {
             entry.value_ptr.*.deinit(self.device);
             self.allocator.destroy(entry.value_ptr.*);
+            self.allocator.free(entry.key_ptr.*);
+        }
+        self.gltf_assets.deinit();
+
+        // Free all cached textures
+        // Note: Textures registered from glTF assets are owned by those assets (freed above).
+        // We only free the cache keys here, not the textures themselves.
+        var tex_it = self.textures.iterator();
+        while (tex_it.next()) |entry| {
+            // Don't deinit/destroy - glTF assets own the textures
             self.allocator.free(entry.key_ptr.*);
         }
         self.textures.deinit();
 
         // Free all cached meshes
+        // Note: Meshes registered from glTF assets are owned by those assets (freed above).
+        // We only free the cache keys here, not the meshes themselves.
         var mesh_it = self.meshes.iterator();
         while (mesh_it.next()) |entry| {
-            entry.value_ptr.*.deinit(self.device);
-            self.allocator.destroy(entry.value_ptr.*);
+            // Don't deinit/destroy - glTF assets own the meshes
             self.allocator.free(entry.key_ptr.*);
         }
         self.meshes.deinit();
@@ -187,11 +208,144 @@ pub const AssetManager = struct {
         return .{
             .texture_count = @intCast(self.textures.count()),
             .mesh_count = @intCast(self.meshes.count()),
+            .gltf_count = @intCast(self.gltf_assets.count()),
         };
+    }
+
+    /// Find the name/key for a mesh pointer (reverse lookup for serialization)
+    pub fn findMeshName(self: *Self, mesh: *const Mesh) ?[]const u8 {
+        var it = self.meshes.iterator();
+        while (it.next()) |entry| {
+            if (entry.value_ptr.* == mesh) {
+                return entry.key_ptr.*;
+            }
+        }
+        return null;
+    }
+
+    /// Find the path/key for a texture pointer (reverse lookup for serialization)
+    pub fn findTexturePath(self: *Self, texture: *const Texture) ?[]const u8 {
+        var it = self.textures.iterator();
+        while (it.next()) |entry| {
+            if (entry.value_ptr.* == texture) {
+                return entry.key_ptr.*;
+            }
+        }
+        return null;
     }
 
     pub const Stats = struct {
         texture_count: u32,
         mesh_count: u32,
+        gltf_count: u32,
     };
+
+    // ============================================
+    // glTF Loading Methods
+    // ============================================
+
+    /// Load a glTF asset from file (caches by path)
+    pub fn loadGLTF(self: *Self, path: []const u8) !*GLTFAsset {
+        // Check cache first
+        if (self.gltf_assets.get(path)) |cached| {
+            return cached;
+        }
+
+        // Build full path
+        const full_path = if (self.base_path.len > 0)
+            try std.fmt.allocPrint(self.allocator, "{s}/{s}", .{ self.base_path, path })
+        else
+            try self.allocator.dupe(u8, path);
+        defer self.allocator.free(full_path);
+
+        // Load using GLTFLoader
+        var loader = GLTFLoader.init(self.allocator);
+        const asset = try loader.load(full_path);
+        errdefer {
+            asset.deinit(self.device);
+            self.allocator.destroy(asset);
+        }
+
+        // Upload to GPU
+        try loader.uploadToGPU(asset, self.device);
+
+        // Register meshes and textures with this asset manager for serialization
+        try self.registerGLTFAssets(asset);
+
+        // Cache the glTF asset
+        const key = try self.allocator.dupe(u8, path);
+        errdefer self.allocator.free(key);
+        try self.gltf_assets.put(key, asset);
+
+        return asset;
+    }
+
+    /// Load a glTF asset and import its scene into an ECS Scene
+    /// Returns the root entities of the imported scene
+    pub fn importGLTFScene(
+        self: *Self,
+        path: []const u8,
+        ecs_scene: *Scene,
+        scene_index: ?usize,
+    ) ![]Entity {
+        const asset = try self.loadGLTF(path);
+        var loader = GLTFLoader.init(self.allocator);
+        return try loader.importScene(asset, ecs_scene, scene_index);
+    }
+
+    /// Get a cached glTF asset by path
+    pub fn getGLTF(self: *Self, path: []const u8) ?*GLTFAsset {
+        return self.gltf_assets.get(path);
+    }
+
+    /// Check if a glTF asset is loaded
+    pub fn hasGLTF(self: *Self, path: []const u8) bool {
+        return self.gltf_assets.contains(path);
+    }
+
+    /// Unload a specific glTF asset
+    pub fn unloadGLTF(self: *Self, path: []const u8) void {
+        if (self.gltf_assets.fetchRemove(path)) |kv| {
+            // Note: Don't unload individual meshes/textures as other code may reference them
+            kv.value.deinit(self.device);
+            self.allocator.destroy(kv.value);
+            self.allocator.free(kv.key);
+        }
+    }
+
+    /// Register glTF meshes and textures with this asset manager for serialization support
+    fn registerGLTFAssets(self: *Self, asset: *GLTFAsset) !void {
+        // Register meshes with qualified names
+        for (asset.meshes, 0..) |mesh_data, mesh_idx| {
+            for (mesh_data.primitives, 0..) |_, prim_idx| {
+                const key = gltf.types.MeshPrimitiveKey{
+                    .mesh_index = mesh_idx,
+                    .primitive_index = prim_idx,
+                };
+                if (asset.mesh_map.get(key)) |gpu_idx| {
+                    const mesh = asset.gpu_meshes.items[gpu_idx];
+                    const name = try asset.getMeshName(mesh_idx, prim_idx);
+                    defer self.allocator.free(name);
+
+                    // Store in meshes cache (don't take ownership - glTF asset owns it)
+                    const cache_key = try self.allocator.dupe(u8, name);
+                    try self.meshes.put(cache_key, mesh);
+                }
+            }
+        }
+
+        // Register textures with qualified names
+        var tex_it = asset.texture_map.iterator();
+        while (tex_it.next()) |entry| {
+            const tex_idx = entry.key_ptr.*;
+            const gpu_idx = entry.value_ptr.*;
+            const texture = asset.gpu_textures.items[gpu_idx];
+            const name = try asset.getTextureName(tex_idx);
+            defer self.allocator.free(name);
+
+            // Store in textures cache (don't take ownership - glTF asset owns it)
+            const cache_key = try self.allocator.dupe(u8, name);
+            try self.textures.put(cache_key, texture);
+        }
+    }
 };

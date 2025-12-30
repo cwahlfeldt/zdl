@@ -97,7 +97,7 @@ src/
           "near": 0.1,
           "far": 1000
         },
-        "FpsCameraController": {
+        "FpvCameraController": {
           "sensitivity": 0.002,
           "move_speed": 5.0
         }
@@ -228,7 +228,7 @@ pub fn registerBuiltinComponents(registry: *ComponentRegistry) void {
     registry.register(CameraComponent, "Camera");
     registry.register(MeshRendererComponent, "MeshRenderer");
     registry.register(LightComponent, "Light");
-    registry.register(FpsCameraController, "FpsCameraController");
+    registry.register(FpvCameraController, "FpvCameraController");
 }
 ```
 

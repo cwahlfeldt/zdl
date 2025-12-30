@@ -1,0 +1,70 @@
+{
+  "version": "1.0.0",
+  "active_camera_id": 0,
+  "entities": [
+    {
+      "id": 0,
+      "transform": {
+        "position": [0, 5, 10],
+        "rotation": [0, 0, 0, 1],
+        "scale": [1, 1, 1]
+      },
+      "camera": {
+        "fov": 0.785398,
+        "near": 0.1,
+        "far": 100.0
+      },
+      "fps_controller": {
+        "yaw": 0,
+        "pitch": 0,
+        "sensitivity": 0.003,
+        "move_speed": 5.0,
+        "capture_on_click": true
+      },
+      "_end": true
+    },
+    {
+      "id": 1,
+      "transform": {
+        "position": [0, 0, 0],
+        "rotation": [0, 0, 0, 1],
+        "scale": [1, 1, 1]
+      },
+      "mesh_renderer": {
+        "mesh_name": "cube",
+        "enabled": true
+      },
+      "_end": true
+    },
+    {
+      "id": 2,
+      "transform": {
+        "position": [3, 0, 0],
+        "rotation": [0, 0, 0, 1],
+        "scale": [0.5, 0.5, 0.5]
+      },
+      "mesh_renderer": {
+        "mesh_name": "cube",
+        "enabled": true
+      },
+      "_end": true
+    },
+    {
+      "id": 3,
+      "transform": {
+        "position": [-3, 2, 0],
+        "rotation": [0, 0.3826834, 0, 0.9238795],
+        "scale": [1, 1, 1]
+      },
+      "light": {
+        "light_type": "point",
+        "color": [1.0, 0.9, 0.8],
+        "intensity": 2.0,
+        "range": 15.0,
+        "inner_angle": 0,
+        "outer_angle": 0
+      },
+      "_end": true
+    }
+  ]
+}

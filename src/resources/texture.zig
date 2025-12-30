@@ -12,19 +12,26 @@ pub const Texture = struct {
         device: *sdl.gpu.Device,
         file_path: []const u8,
     ) !Texture {
-        // Load the image using SDL's image loading
-        const surface = try sdl.video.Surface.load(file_path);
+        // Load the image using SDL_image
+        // Create a null-terminated path (SDL requires [:0]const u8)
+        var path_buffer: [4096]u8 = undefined;
+        if (file_path.len >= path_buffer.len) return error.PathTooLong;
+        @memcpy(path_buffer[0..file_path.len], file_path);
+        path_buffer[file_path.len] = 0;
+        const path_z: [:0]const u8 = path_buffer[0..file_path.len :0];
+
+        const surface = sdl.image.loadFile(path_z) catch return error.FailedToLoadImage;
         defer surface.deinit();
 
-        const width = surface.getWidth();
-        const height = surface.getHeight();
+        const width: u32 = @intCast(surface.getWidth());
+        const height: u32 = @intCast(surface.getHeight());
 
         // Convert surface to RGBA8 if needed
-        const rgba_surface = if (surface.getFormat() != .rgba8888)
-            try surface.convert(.rgba8888)
+        const rgba_surface = if (surface.getFormat() != sdl.pixels.Format.array_rgba_32)
+            try surface.convertFormat(sdl.pixels.Format.array_rgba_32)
         else
             surface;
-        defer if (surface.getFormat() != .rgba8888) rgba_surface.deinit();
+        defer if (surface.getFormat() != sdl.pixels.Format.array_rgba_32) rgba_surface.deinit();
 
         // Get pixel data
         const pixels = rgba_surface.getPixels() orelse return error.NoPixelData;
@@ -146,6 +153,104 @@ pub const Texture = struct {
         device.unmapTransferBuffer(transfer_buffer);
 
         // Upload to GPU
+        const cmd = try device.acquireCommandBuffer();
+        {
+            const copy_pass = cmd.beginCopyPass();
+            defer copy_pass.end();
+
+            copy_pass.uploadToTexture(
+                .{ .transfer_buffer = transfer_buffer, .offset = 0 },
+                .{
+                    .texture = gpu_texture,
+                    .mip_level = 0,
+                    .layer = 0,
+                    .x = 0,
+                    .y = 0,
+                    .z = 0,
+                    .width = width,
+                    .height = height,
+                    .depth = 1,
+                },
+                false,
+            );
+        }
+        try cmd.submit();
+
+        return .{
+            .gpu_texture = gpu_texture,
+            .width = width,
+            .height = height,
+        };
+    }
+
+    /// Load a texture from in-memory image data (PNG, JPG, etc.)
+    pub fn loadFromMemory(
+        device: *sdl.gpu.Device,
+        data: []const u8,
+    ) !Texture {
+        // Load the image from memory using SDL's IOStream
+        const stream = sdl.io_stream.Stream.initFromConstMem(data) catch return error.InvalidData;
+        // close_when_done=true means loadIo will close the stream for us
+        const surface = sdl.image.loadIo(stream, true) catch return error.InvalidImageFormat;
+        defer surface.deinit();
+
+        const width: u32 = @intCast(surface.getWidth());
+        const height: u32 = @intCast(surface.getHeight());
+
+        // Convert surface to RGBA8 if needed
+        const rgba_surface = if (surface.getFormat() != sdl.pixels.Format.array_rgba_32)
+            try surface.convertFormat(sdl.pixels.Format.array_rgba_32)
+        else
+            surface;
+        defer if (surface.getFormat() != sdl.pixels.Format.array_rgba_32) rgba_surface.deinit();
+
+        // Get pixel data
+        const pixels = rgba_surface.getPixels() orelse return error.NoPixelData;
+        const pitch = rgba_surface.getPitch();
+        const expected_pitch = width * 4;
+
+        // Create GPU texture
+        const gpu_texture = try device.createTexture(.{
+            .texture_type = .two_dimensional,
+            .format = .r8g8b8a8_unorm,
+            .width = width,
+            .height = height,
+            .layer_count_or_depth = 1,
+            .num_levels = 1,
+            .sample_count = .no_multisampling,
+            .usage = .{ .sampler = true },
+        });
+        errdefer device.releaseTexture(gpu_texture);
+
+        // Create transfer buffer for uploading pixel data
+        const transfer_size = width * height * 4;
+        const transfer_buffer = try device.createTransferBuffer(.{
+            .usage = .upload,
+            .size = transfer_size,
+        });
+        defer device.releaseTransferBuffer(transfer_buffer);
+
+        // Copy pixel data to transfer buffer
+        const transfer_data = try device.mapTransferBuffer(transfer_buffer, false);
+        const transfer_bytes = @as([*]u8, @ptrCast(transfer_data));
+
+        if (pitch == expected_pitch) {
+            @memcpy(transfer_bytes[0..transfer_size], @as([*]const u8, @ptrCast(pixels))[0..transfer_size]);
+        } else {
+            const src_bytes = @as([*]const u8, @ptrCast(pixels));
+            for (0..height) |row| {
+                const src_offset = row * pitch;
+                const dst_offset = row * expected_pitch;
+                @memcpy(
+                    transfer_bytes[dst_offset .. dst_offset + expected_pitch],
+                    src_bytes[src_offset .. src_offset + expected_pitch],
+                );
+            }
+        }
+
+        device.unmapTransferBuffer(transfer_buffer);
+
+        // Upload to GPU texture
         const cmd = try device.acquireCommandBuffer();
         {
             const copy_pass = cmd.beginCopyPass();

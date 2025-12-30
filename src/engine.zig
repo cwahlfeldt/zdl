@@ -30,6 +30,9 @@ pub const Texture = @import("resources/texture.zig").Texture;
 
 // Asset Management
 pub const AssetManager = @import("assets/asset_manager.zig").AssetManager;
+pub const gltf = @import("assets/asset_manager.zig").gltf;
+pub const GLTFLoader = gltf.GLTFLoader;
+pub const GLTFAsset = gltf.GLTFAsset;
 
 // Audio
 pub const audio = @import("audio/audio.zig");
@@ -43,4 +46,15 @@ pub const Entity = ecs.Entity;
 pub const TransformComponent = ecs.TransformComponent;
 pub const CameraComponent = ecs.CameraComponent;
 pub const MeshRendererComponent = ecs.MeshRendererComponent;
-pub const FpsCameraController = ecs.FpsCameraController;
+pub const FpvCameraController = ecs.FpvCameraController;
+
+// Scene Serialization
+pub const serialization = @import("serialization/serialization.zig");
+pub const SceneSerializer = serialization.SceneSerializer;
+
+// Debug and Profiling
+pub const debug = @import("debug/debug.zig");
+pub const DebugDraw = debug.DebugDraw;
+pub const Profiler = debug.Profiler;
+pub const StatsOverlay = debug.StatsOverlay;
+pub const scopedZone = debug.scopedZone;
