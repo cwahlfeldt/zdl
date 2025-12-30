@@ -59,8 +59,8 @@ pub const RenderSystem = struct {
             updateLightsFromScene(scene, frame.engine, cam_pos);
         }
 
-        // Track current pipeline state
-        var current_pipeline_is_pbr = false;
+        // Track current pipeline state: null = none bound, false = legacy, true = pbr
+        var current_pipeline_is_pbr: ?bool = null;
 
         // Iterate all mesh renderers
         const renderers = scene.getMeshRenderers();
@@ -76,7 +76,7 @@ pub const RenderSystem = struct {
 
             if (use_pbr) {
                 // PBR rendering path
-                if (!current_pipeline_is_pbr) {
+                if (current_pipeline_is_pbr != true) {
                     _ = frame.bindPBRPipeline();
                     current_pipeline_is_pbr = true;
                 }
@@ -101,7 +101,7 @@ pub const RenderSystem = struct {
                 frame.drawMesh(renderer.mesh.*);
             } else {
                 // Legacy rendering path
-                if (current_pipeline_is_pbr) {
+                if (current_pipeline_is_pbr != false) {
                     frame.bindPipeline();
                     current_pipeline_is_pbr = false;
                 }
