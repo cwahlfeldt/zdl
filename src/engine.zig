@@ -10,6 +10,16 @@ pub const Color = @import("engine/engine.zig").Color;
 // Subsystems
 pub const Input = @import("input/input.zig").Input;
 pub const MouseButton = @import("input/input.zig").MouseButton;
+pub const InputDevice = @import("input/input.zig").InputDevice;
+
+// Gamepad
+pub const Gamepad = @import("input/input.zig").Gamepad;
+pub const GamepadManager = @import("input/input.zig").GamepadManager;
+pub const GamepadButton = @import("input/input.zig").GamepadButton;
+pub const GamepadAxis = @import("input/input.zig").GamepadAxis;
+pub const GamepadType = @import("input/input.zig").GamepadType;
+pub const HapticPresets = @import("input/input.zig").HapticPresets;
+pub const StickValue = @import("input/input.zig").StickValue;
 
 // Math
 pub const math = @import("math/math.zig");
@@ -86,3 +96,8 @@ pub const Font = ui.Font;
 pub const Theme = ui.Theme;
 pub const Style = ui.Style;
 pub const Rect = ui.Rect;
+
+// Scripting
+pub const scripting = @import("scripting/scripting.zig");
+pub const ScriptComponent = scripting.ScriptComponent;
+pub const ScriptSystem = scripting.ScriptSystem;

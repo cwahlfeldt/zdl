@@ -11,6 +11,12 @@ pub fn build(b: *std.Build) void {
         .ext_image = true,
     });
 
+    // Get quickjs dependency for JavaScript scripting
+    const quickjs = b.dependency("quickjs", .{
+        .target = target,
+        .optimize = optimize,
+    });
+
     // Create engine module
     const engine_module = b.createModule(.{
         .root_source_file = b.path("src/engine.zig"),
@@ -18,6 +24,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     engine_module.addImport("sdl3", sdl3.module("sdl3"));
+    engine_module.addImport("quickjs", quickjs.module("quickjs"));
 
     // Build Asset Pipeline tool
     const zdl_assets = b.addExecutable(.{
@@ -193,6 +200,50 @@ pub fn build(b: *std.Build) void {
     const run_pbr_step = b.step("run-pbr", "Run PBR Demo example");
     run_pbr_step.dependOn(&run_pbr_demo.step);
 
+    // Build Gamepad Demo example
+    const gamepad_demo = b.addExecutable(.{
+        .name = "gamepad_demo",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("examples/gamepad_demo/main.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    gamepad_demo.root_module.addImport("sdl3", sdl3.module("sdl3"));
+    gamepad_demo.root_module.addImport("engine", engine_module);
+    b.installArtifact(gamepad_demo);
+
+    // Gamepad Demo run step
+    const run_gamepad_demo = b.addRunArtifact(gamepad_demo);
+    run_gamepad_demo.step.dependOn(b.getInstallStep());
+    if (b.args) |args| {
+        run_gamepad_demo.addArgs(args);
+    }
+    const run_gamepad_step = b.step("run-gamepad", "Run Gamepad Demo example");
+    run_gamepad_step.dependOn(&run_gamepad_demo.step);
+
+    // Build Scripting Demo example
+    const scripting_demo = b.addExecutable(.{
+        .name = "scripting_demo",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("examples/scripting_demo/main.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    scripting_demo.root_module.addImport("sdl3", sdl3.module("sdl3"));
+    scripting_demo.root_module.addImport("engine", engine_module);
+    b.installArtifact(scripting_demo);
+
+    // Scripting Demo run step
+    const run_scripting_demo = b.addRunArtifact(scripting_demo);
+    run_scripting_demo.step.dependOn(b.getInstallStep());
+    if (b.args) |args| {
+        run_scripting_demo.addArgs(args);
+    }
+    const run_scripting_step = b.step("run-scripting", "Run Scripting Demo example");
+    run_scripting_step.dependOn(&run_scripting_demo.step);
+
     // Note: Shader compilation is handled by the asset pipeline tool (zdl-assets)
     // Run: zig build assets -- build --source=src/shaders --output=src/shaders
     // Or:  ./zig-out/bin/zdl-assets build --source=assets --output=build/assets
@@ -206,6 +257,7 @@ pub fn build(b: *std.Build) void {
         }),
     });
     engine_tests.root_module.addImport("sdl3", sdl3.module("sdl3"));
+    engine_tests.root_module.addImport("quickjs", quickjs.module("quickjs"));
 
     const run_tests = b.addRunArtifact(engine_tests);
     const test_step = b.step("test", "Run engine unit tests");

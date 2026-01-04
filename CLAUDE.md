@@ -77,6 +77,15 @@ src/
 │   ├── animation_system.zig # ECS system
 │   └── skinned_mesh.zig     # GPU skinning support
 ├── input/            # Input system
+│   ├── input.zig         # Keyboard, mouse, gamepad input manager
+│   └── gamepad.zig       # Gamepad state, buttons, axes, haptics
+├── scripting/        # JavaScript scripting system
+│   ├── scripting.zig     # Module exports
+│   ├── js_runtime.zig    # QuickJS runtime wrapper
+│   ├── js_context.zig    # Script execution context
+│   ├── script_component.zig # ScriptComponent for entities
+│   ├── script_system.zig # System to update all scripts
+│   └── bindings/         # Zig-to-JavaScript API bindings
 ├── math/             # Vec2, Vec3, Vec4, Mat4, Quat
 ├── resources/        # Mesh, Texture, Primitives
 ├── gpu/              # GPU uniforms
@@ -97,7 +106,9 @@ examples/
 ├── debug_demo/       # Debug visualization and profiling demo
 ├── gltf_demo/        # glTF model loading demo
 ├── animation_demo/   # Skeletal animation demo
-└── pbr_demo/         # PBR rendering with materials and lights
+├── pbr_demo/         # PBR rendering with materials and lights
+├── gamepad_demo/     # Gamepad input and haptic feedback demo
+└── scripting_demo/   # JavaScript scripting with hot-reload
 ```
 
 ### Core Components
@@ -277,6 +288,78 @@ const text = stats.formatTitleString(&buffer);
 
 See `examples/debug_demo/` for a complete example.
 
+### Gamepad Input
+
+The engine supports gamepad/controller input with the following features:
+
+**Basic Gamepad Access:**
+```zig
+// Get the primary (first connected) gamepad
+if (input.getGamepad()) |gamepad| {
+    // Check buttons
+    if (gamepad.isButtonJustPressed(.south)) {
+        // A button (Xbox) / Cross (PlayStation) pressed
+    }
+
+    // Check analog sticks (returns StickValue with x, y from -1 to 1)
+    const left = gamepad.getLeftStick();
+    const right = gamepad.getRightStick();
+
+    // Check triggers (returns 0.0 to 1.0)
+    const lt = gamepad.getLeftTrigger();
+    const rt = gamepad.getRightTrigger();
+}
+
+// Check gamepad count
+const count = input.getGamepadCount();
+if (input.hasGamepad()) { ... }
+```
+
+**Unified Input (Keyboard + Gamepad):**
+```zig
+// Get movement from WASD keys OR gamepad left stick
+const move = input.getMoveVector();  // Returns StickValue {x, y}
+
+// Get look input from mouse OR gamepad right stick
+const look = input.getLookVector();
+
+// Common actions (keyboard + gamepad)
+if (input.isConfirmPressed()) { ... }  // Space/Enter or A button
+if (input.isCancelPressed()) { ... }   // Escape or B button
+if (input.isJumpPressed()) { ... }     // Space or A button
+```
+
+**Haptic Feedback (Rumble):**
+```zig
+const HapticPresets = engine.HapticPresets;
+
+if (input.getGamepad()) |gamepad| {
+    // Preset effects
+    HapticPresets.lightTap(gamepad);      // Quick tap
+    HapticPresets.mediumImpact(gamepad);  // Moderate impact
+    HapticPresets.heavyImpact(gamepad);   // Strong impact
+    HapticPresets.explosion(gamepad);     // Powerful burst
+
+    // Custom rumble (low_freq 0-1, high_freq 0-1, duration_ms)
+    gamepad.rumble(0.5, 0.3, 200);
+    gamepad.stopRumble();
+}
+```
+
+**Button Mapping:**
+| Engine Name | Xbox | PlayStation | Switch |
+|-------------|------|-------------|--------|
+| .south      | A    | Cross       | B      |
+| .east       | B    | Circle      | A      |
+| .west       | X    | Square      | Y      |
+| .north      | Y    | Triangle    | X      |
+| .left_shoulder | LB | L1       | L      |
+| .right_shoulder | RB | R1      | R      |
+| .start      | Menu | Options     | +      |
+| .back       | View | Share       | -      |
+
+See `examples/gamepad_demo/` for a complete example.
+
 ### Animation System
 
 The animation module provides skeletal animation support:
@@ -410,6 +493,194 @@ if (eng.hasPBR()) {
 The render system automatically switches between legacy and PBR pipelines based on whether entities have materials attached.
 
 See `examples/pbr_demo/` for a complete example.
+
+### JavaScript Scripting
+
+The engine supports JavaScript scripting using QuickJS, enabling game logic to be written in JavaScript with hot-reload support during development.
+
+**Enabling Scripting:**
+```zig
+var eng = try Engine.init(allocator, .{ .window_title = "My Game" });
+defer eng.deinit();
+
+// Initialize the scripting system
+try eng.initScripting();
+
+// Check if scripting is available
+if (eng.hasScripting()) {
+    // JavaScript scripting enabled
+}
+```
+
+**ScriptComponent** - Attach scripts to entities:
+```zig
+const ScriptComponent = engine.ScriptComponent;
+
+// Create an entity with a script
+const player = try scene.createEntity();
+try scene.addComponent(player, TransformComponent.withPosition(Vec3.init(0, 2, 0)));
+try scene.addComponent(player, ScriptComponent.init("scripts/player.js"));
+```
+
+**Writing Scripts** - Scripts are JavaScript classes with lifecycle hooks:
+```javascript
+// scripts/player.js
+class PlayerController {
+    constructor() {
+        this.moveSpeed = 5.0;
+        this.pitch = 0;
+        this.yaw = 0;
+    }
+
+    onStart() {
+        console.log("Player started!");
+    }
+
+    onUpdate(dt) {
+        var transform = this.transform;
+        var move = Input.getMoveVector();
+
+        // Movement
+        if (move.x !== 0 || move.y !== 0) {
+            var forward = transform.forward();
+            var right = transform.right();
+            var velocity = right.mul(move.x).add(forward.mul(-move.y));
+            velocity = velocity.normalize().mul(this.moveSpeed * dt);
+            transform.translate(velocity);
+        }
+
+        // Mouse look
+        var look = Input.getLookVector();
+        this.yaw -= look.x * 0.003;
+        this.pitch -= look.y * 0.003;
+        transform.setRotationEuler(this.pitch, this.yaw, 0);
+    }
+
+    onDestroy() {
+        console.log("Player destroyed");
+    }
+}
+
+PlayerController;  // Return the class
+```
+
+**JavaScript API Reference:**
+
+*Math Types:*
+```javascript
+var v = new Vec2(1, 2);
+var v3 = new Vec3(1, 2, 3);
+var v4 = new Vec4(1, 2, 3, 4);
+var q = Quat.identity();
+
+// Vec3 operations
+v3.add(other), v3.sub(other), v3.mul(scalar)
+v3.normalize(), v3.length(), v3.dot(other), v3.cross(other)
+Vec3.up(), Vec3.right(), Vec3.forward()
+
+// Quat operations
+Quat.fromAxisAngle(axis, angle)
+Quat.fromEuler(pitch, yaw, roll)
+q.mul(other), q.rotateVec3(v)
+```
+
+*Transform (accessed via this.transform in scripts):*
+```javascript
+// Position, rotation, scale
+transform.position              // Vec3 (get/set)
+transform.rotation              // Quat (get/set)
+transform.scale                 // Vec3 (get/set)
+
+// Direction vectors (read-only)
+transform.forward()             // Vec3
+transform.right()               // Vec3
+transform.up()                  // Vec3
+
+// Operations
+transform.translate(delta)      // Move by Vec3
+transform.rotate(quat)          // Rotate by quaternion
+transform.rotateAxis(axis, angle)
+transform.rotateEuler(pitch, yaw, roll)
+transform.setRotationEuler(pitch, yaw, roll)
+transform.lookAt(target, upVector)
+transform.scaleUniform(factor)
+```
+
+*Input:*
+```javascript
+// Keyboard
+Input.isKeyDown("w")            // Key held
+Input.isKeyPressed("space")     // Key just pressed
+Input.isKeyReleased("escape")   // Key just released
+
+// Mouse
+Input.getMousePosition()        // Vec2
+Input.getMouseDelta()           // Vec2
+Input.isMouseButtonDown("left") // "left", "middle", "right"
+Input.isMouseButtonPressed("left")
+
+// Unified input (keyboard + gamepad)
+Input.getMoveVector()           // Vec2 from WASD or left stick
+Input.getLookVector()           // Vec2 from mouse or right stick
+Input.isConfirmPressed()        // Space/Enter or A button
+Input.isCancelPressed()         // Escape or B button
+Input.isJumpPressed()           // Space or A button
+Input.isJumpDown()              // Jump held
+
+// Gamepad
+if (Input.hasGamepad()) {
+    var gp = Input.getGamepad();
+    gp.getLeftStick()           // Vec2
+    gp.getRightStick()          // Vec2
+    gp.getLeftTrigger()         // 0.0 to 1.0
+    gp.getRightTrigger()        // 0.0 to 1.0
+    gp.isButtonDown("south")    // A/Cross
+    gp.isButtonPressed("east")  // B/Circle
+    gp.rumble(lowFreq, highFreq, durationMs)
+    gp.stopRumble()
+}
+```
+
+*Engine:*
+```javascript
+Engine.deltaTime                // Frame delta time
+Engine.totalTime                // Total elapsed time
+Engine.fps                      // Current FPS
+Engine.width, Engine.height     // Window dimensions
+Engine.isMouseCaptured()        // Mouse capture state
+Engine.setMouseCapture(true)    // Capture/release mouse
+Engine.quit()                   // Exit the application
+```
+
+*Scene:*
+```javascript
+var entity = Scene.createEntity()
+Scene.destroyEntity(entity)
+Scene.entityExists(entity)
+Scene.setActiveCamera(entity)
+Scene.getActiveCamera()
+Scene.findByName(name)
+Scene.findByTag(tag)
+Scene.entityCount()
+```
+
+*Console:*
+```javascript
+console.log("message")
+console.warn("warning")
+console.error("error")
+```
+
+**Hot Reload:**
+Scripts are automatically reloaded when their files are modified. The system:
+1. Detects file changes every ~1 second
+2. Calls `onDestroy()` on the old script
+3. Reloads and re-evaluates the script
+4. Calls `onStart()` on the new instance
+
+This allows rapid iteration during development.
+
+See `examples/scripting_demo/` for a complete example with FPS camera controller, rotating cube, and orbiting sphere - all in JavaScript!
 
 ## Creating a New Game
 

@@ -15,6 +15,9 @@ const Audio = @import("../audio/audio.zig").Audio;
 const Scene = @import("../ecs/scene.zig").Scene;
 const RenderSystem = @import("../ecs/systems/render_system.zig").RenderSystem;
 
+// Scripting imports
+const ScriptSystem = @import("../scripting/script_system.zig").ScriptSystem;
+
 // Platform-specific shader configuration
 const is_macos = builtin.os.tag == .macos;
 const ShaderConfig = if (is_macos) struct {
@@ -117,6 +120,12 @@ pub const Engine = struct {
     fps_last_update: u64,
     fps_current: f32,
     original_window_title: [:0]const u8,
+
+    // Scripting
+    script_system: ?*ScriptSystem,
+
+    // Quit flag (can be set by scripts)
+    should_quit: bool,
 
     pub fn init(allocator: std.mem.Allocator, config: EngineConfig) !Engine {
         try sdl.init(.{ .video = true });
@@ -286,7 +295,24 @@ pub const Engine = struct {
             .fps_last_update = last_time,
             .fps_current = 0.0,
             .original_window_title = config.window_title,
+            .script_system = null,
+            .should_quit = false,
         };
+    }
+
+    /// Initialize the scripting system.
+    /// Call this to enable JavaScript scripting support.
+    pub fn initScripting(self: *Engine) !void {
+        if (self.script_system != null) return; // Already initialized
+
+        const script_sys = try self.allocator.create(ScriptSystem);
+        script_sys.* = try ScriptSystem.init(self.allocator);
+        self.script_system = script_sys;
+    }
+
+    /// Check if scripting is available.
+    pub fn hasScripting(self: *Engine) bool {
+        return self.script_system != null;
     }
 
     /// Initialize the PBR rendering pipeline and default textures.
@@ -405,6 +431,12 @@ pub const Engine = struct {
     }
 
     pub fn deinit(self: *Engine) void {
+        // Clean up scripting
+        if (self.script_system) |script_sys| {
+            script_sys.deinit();
+            self.allocator.destroy(script_sys);
+        }
+
         self.audio.deinit();
         self.device.releaseSampler(self.sampler);
         var mutable_device = self.device;
@@ -470,6 +502,13 @@ pub const Engine = struct {
                     },
                     .key_up => try self.input.processEvent(event),
                     .mouse_motion, .mouse_button_down, .mouse_button_up => try self.input.processEvent(event),
+                    // Gamepad events
+                    .gamepad_added,
+                    .gamepad_removed,
+                    .gamepad_button_down,
+                    .gamepad_button_up,
+                    .gamepad_axis_motion,
+                    => try self.input.processEvent(event),
                     else => {},
                 }
             }
@@ -493,6 +532,16 @@ pub const Engine = struct {
                 try update_callback(self, scene, &self.input, delta_time);
             }
 
+            // Update scripts
+            if (self.script_system) |script_sys| {
+                script_sys.update(scene, self, &self.input, delta_time);
+            }
+
+            // Check if script requested quit
+            if (self.should_quit) {
+                running = false;
+            }
+
             // Update world transforms
             scene.updateWorldTransforms();
 
@@ -509,6 +558,11 @@ pub const Engine = struct {
             if (frame_time < self.target_frame_time) {
                 sdl.timer.delayMilliseconds(@intCast(self.target_frame_time - frame_time));
             }
+        }
+
+        // Shutdown scripts before scene cleanup
+        if (self.script_system) |script_sys| {
+            script_sys.shutdown(scene);
         }
     }
 

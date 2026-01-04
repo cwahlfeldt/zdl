@@ -6,6 +6,10 @@
             .url = "git+https://codeberg.org/7Games/zig-sdl3#014b7bcb2899f3ed9c945c4abfcfe1b25d75bfeb",
             .hash = "sdl3-0.1.5-NmT1QxARJgAH1Wp0cMBJDAc9vD7weufTkIwVa5rehA2q",
         },
+        .quickjs = .{
+            .url = "git+https://github.com/nDimensional/zig-quickjs#12c82426a92622eefcfd6bf03fd4de3721153220",
+            .hash = "quickjs-0.1.0-pXITavQIAQCDX3Ib1k8O-q-0suHFMOEjzfyf96cyaJEt",
+        },
     },
     .paths = .{""},
     .fingerprint = 0xe3b2b7444c02b8a9,
