@@ -14,6 +14,9 @@ const MeshRendererComponent = components.MeshRendererComponent;
 const LightComponent = components.LightComponent;
 const FpvCameraController = components.FpvCameraController;
 
+// Scripting component
+pub const ScriptComponent = @import("../scripting/script_component.zig").ScriptComponent;
+
 /// Scene container that owns all entities and components.
 /// Provides the primary API for creating and managing the game world.
 pub const Scene = struct {
@@ -28,6 +31,7 @@ pub const Scene = struct {
     mesh_renderers: ComponentStorage(MeshRendererComponent),
     lights: ComponentStorage(LightComponent),
     fps_controllers: ComponentStorage(FpvCameraController),
+    scripts: ComponentStorage(ScriptComponent),
 
     /// Currently active camera entity
     active_camera: Entity,
@@ -44,12 +48,14 @@ pub const Scene = struct {
             .mesh_renderers = ComponentStorage(MeshRendererComponent).init(allocator),
             .lights = ComponentStorage(LightComponent).init(allocator),
             .fps_controllers = ComponentStorage(FpvCameraController).init(allocator),
+            .scripts = ComponentStorage(ScriptComponent).init(allocator),
             .active_camera = Entity.invalid,
         };
     }
 
     pub fn deinit(self: *Scene) void {
         self.root_entities.deinit(self.allocator);
+        self.scripts.deinit();
         self.fps_controllers.deinit();
         self.lights.deinit();
         self.mesh_renderers.deinit();
@@ -96,6 +102,7 @@ pub const Scene = struct {
         _ = self.mesh_renderers.remove(entity);
         _ = self.lights.remove(entity);
         _ = self.fps_controllers.remove(entity);
+        _ = self.scripts.remove(entity);
 
         // Clear active camera if destroyed
         if (self.active_camera.eql(entity)) {
@@ -126,6 +133,8 @@ pub const Scene = struct {
             try self.lights.add(entity, component);
         } else if (T == FpvCameraController) {
             try self.fps_controllers.add(entity, component);
+        } else if (T == ScriptComponent) {
+            try self.scripts.add(entity, component);
         } else {
             @compileError("Unknown component type: " ++ @typeName(T));
         }
@@ -150,6 +159,8 @@ pub const Scene = struct {
             return self.lights.remove(entity);
         } else if (T == FpvCameraController) {
             return self.fps_controllers.remove(entity);
+        } else if (T == ScriptComponent) {
+            return self.scripts.remove(entity);
         } else {
             @compileError("Unknown component type: " ++ @typeName(T));
         }
@@ -167,6 +178,8 @@ pub const Scene = struct {
             return self.lights.get(entity);
         } else if (T == FpvCameraController) {
             return self.fps_controllers.get(entity);
+        } else if (T == ScriptComponent) {
+            return self.scripts.get(entity);
         } else {
             @compileError("Unknown component type: " ++ @typeName(T));
         }
@@ -184,6 +197,8 @@ pub const Scene = struct {
             return self.lights.has(entity);
         } else if (T == FpvCameraController) {
             return self.fps_controllers.has(entity);
+        } else if (T == ScriptComponent) {
+            return self.scripts.has(entity);
         } else {
             @compileError("Unknown component type: " ++ @typeName(T));
         }

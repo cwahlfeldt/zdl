@@ -11,7 +11,7 @@ This document outlines the comprehensive development plan to evolve ZDL from its
 | Phase 1: Core Infrastructure | ✅ Complete | 3/3 complete |
 | Phase 2: Content Creation | ✅ Complete | 3/3 complete |
 | Phase 3: Visual Quality | 🟡 In Progress | 1/3 complete |
-| Phase 4: Interactivity | Not Started | 0/3 |
+| Phase 4: Interactivity | 🟡 In Progress | 1/3 complete |
 | Phase 5: Extensibility | Not Started | 0/2 |
 | Phase 6: Platform Expansion | Not Started | 0/1 |
 
@@ -156,11 +156,21 @@ Systems that enhance visual fidelity.
 
 Systems that enable gameplay.
 
-| System                                           | Priority | Effort    | Dependencies |
-| ------------------------------------------------ | -------- | --------- | ------------ |
-| [Physics System](09-physics-system.md)           | Critical | Very High | None         |
-| [Controller & Gamepad](05-controller-gamepad.md) | High     | Medium    | Input System |
-| [Audio Enhancement](11-audio-enhancement.md)     | High     | Medium    | None         |
+| System                                           | Priority | Effort    | Dependencies | Status |
+| ------------------------------------------------ | -------- | --------- | ------------ | ------ |
+| [Physics System](09-physics-system.md)           | Critical | Very High | None         | |
+| [Controller & Gamepad](05-controller-gamepad.md) | High     | Medium    | Input System | ✅ Complete |
+| [Audio Enhancement](11-audio-enhancement.md)     | High     | Medium    | None         | |
+
+**Controller & Gamepad Implementation Notes:**
+- Location: `src/input/gamepad.zig`, `src/input/input.zig`
+- Gamepad struct: Button/axis state tracking with frame-based press detection
+- GamepadManager: Multi-controller support with connection/disconnection handling
+- Dead zone handling: Circular dead zone for analog sticks, linear for triggers
+- Haptic feedback: Rumble support with preset effects (lightTap, mediumImpact, etc.)
+- Unified input: `getMoveVector()`, `getLookVector()` work with keyboard+gamepad
+- StickValue type: Common return type for stick/movement queries
+- Example: `examples/gamepad_demo/` demonstrates all gamepad features
 
 **Rationale:** Physics enables collision, movement, and interactions. Gamepad support is essential for console-style games. Enhanced audio provides immersion.
 

@@ -1,5 +1,15 @@
 const std = @import("std");
-const sdl = @import("sdl3");
+pub const sdl = @import("sdl3");
+const gamepad_module = @import("gamepad.zig");
+
+pub const Scancode = sdl.Scancode;
+pub const Gamepad = gamepad_module.Gamepad;
+pub const GamepadManager = gamepad_module.GamepadManager;
+pub const GamepadButton = gamepad_module.Button;
+pub const GamepadAxis = gamepad_module.Axis;
+pub const GamepadType = gamepad_module.GamepadType;
+pub const HapticPresets = gamepad_module.HapticPresets;
+pub const StickValue = gamepad_module.StickValue;
 
 /// Key state tracking
 pub const KeyState = struct {
@@ -15,8 +25,15 @@ pub const MouseButton = enum {
     right,
 };
 
-/// Input manager for tracking keyboard and mouse state
+/// Input device type for tracking last active device
+pub const InputDevice = enum {
+    keyboard_mouse,
+    gamepad,
+};
+
+/// Input manager for tracking keyboard, mouse, and gamepad state
 pub const Input = struct {
+    allocator: std.mem.Allocator,
     keys: std.AutoHashMap(sdl.Scancode, KeyState),
 
     // Mouse state
@@ -29,13 +46,27 @@ pub const Input = struct {
     mouse_middle: bool = false,
     mouse_captured: bool = false,
 
+    // Gamepad state
+    gamepads: GamepadManager,
+
+    /// Track last input device for UI prompt switching
+    last_input_device: InputDevice = .keyboard_mouse,
+
     pub fn init(allocator: std.mem.Allocator) Input {
-        return .{
+        var input = Input{
+            .allocator = allocator,
             .keys = std.AutoHashMap(sdl.Scancode, KeyState).init(allocator),
+            .gamepads = GamepadManager.init(allocator),
         };
+
+        // Scan for already-connected gamepads
+        input.gamepads.scanForGamepads() catch {};
+
+        return input;
     }
 
     pub fn deinit(self: *Input) void {
+        self.gamepads.deinit();
         self.keys.deinit();
     }
 
@@ -50,12 +81,16 @@ pub const Input = struct {
         // Reset mouse delta each frame
         self.mouse_delta_x = 0;
         self.mouse_delta_y = 0;
+
+        // Reset gamepad frame state
+        self.gamepads.update();
     }
 
-    /// Process SDL keyboard and mouse events
+    /// Process SDL keyboard, mouse, and gamepad events
     pub fn processEvent(self: *Input, event: sdl.events.Event) !void {
         switch (event) {
             .key_down => |key_event| {
+                self.last_input_device = .keyboard_mouse;
                 const scancode = key_event.scancode orelse return;
                 const result = try self.keys.getOrPut(scancode);
                 if (!result.found_existing) {
@@ -80,12 +115,14 @@ pub const Input = struct {
                 result.value_ptr.down = false;
             },
             .mouse_motion => |motion| {
+                self.last_input_device = .keyboard_mouse;
                 self.mouse_x = motion.x;
                 self.mouse_y = motion.y;
                 self.mouse_delta_x += motion.x_rel;
                 self.mouse_delta_y += motion.y_rel;
             },
             .mouse_button_down => |button| {
+                self.last_input_device = .keyboard_mouse;
                 switch (button.button) {
                     .left => self.mouse_left = true,
                     .middle => self.mouse_middle = true,
@@ -101,17 +138,41 @@ pub const Input = struct {
                     else => {},
                 }
             },
+            // Gamepad events
+            .gamepad_added => |gp_event| {
+                try self.gamepads.handleGamepadAdded(gp_event.id);
+            },
+            .gamepad_removed => |gp_event| {
+                self.gamepads.handleGamepadRemoved(gp_event.id);
+            },
+            .gamepad_button_down => |gp_event| {
+                self.last_input_device = .gamepad;
+                if (self.gamepads.getById(gp_event.id)) |gamepad| {
+                    gamepad.handleButtonDown(GamepadButton.fromSdl(gp_event.button));
+                }
+            },
+            .gamepad_button_up => |gp_event| {
+                if (self.gamepads.getById(gp_event.id)) |gamepad| {
+                    gamepad.handleButtonUp(GamepadButton.fromSdl(gp_event.button));
+                }
+            },
+            .gamepad_axis_motion => |gp_event| {
+                self.last_input_device = .gamepad;
+                if (self.gamepads.getById(gp_event.id)) |gamepad| {
+                    gamepad.handleAxisMotion(GamepadAxis.fromSdl(gp_event.axis), gp_event.value);
+                }
+            },
             else => {},
         }
     }
 
     /// Get mouse delta since last frame
-    pub fn getMouseDelta(self: *const Input) struct { x: f32, y: f32 } {
+    pub fn getMouseDelta(self: *const Input) StickValue {
         return .{ .x = self.mouse_delta_x, .y = self.mouse_delta_y };
     }
 
     /// Get mouse position
-    pub fn getMousePosition(self: *const Input) struct { x: f32, y: f32 } {
+    pub fn getMousePosition(self: *const Input) StickValue {
         return .{ .x = self.mouse_x, .y = self.mouse_y };
     }
 
@@ -144,7 +205,7 @@ pub const Input = struct {
     }
 
     /// Helper: Check if any of the WASD keys are down
-    pub fn getWASD(self: *Input) struct { x: f32, y: f32 } {
+    pub fn getWASD(self: *Input) StickValue {
         var x: f32 = 0.0;
         var y: f32 = 0.0;
 
@@ -157,7 +218,7 @@ pub const Input = struct {
     }
 
     /// Helper: Check if any of the arrow keys are down
-    pub fn getArrowKeys(self: *Input) struct { x: f32, y: f32 } {
+    pub fn getArrowKeys(self: *Input) StickValue {
         var x: f32 = 0.0;
         var y: f32 = 0.0;
 
@@ -167,5 +228,117 @@ pub const Input = struct {
         if (self.isKeyDown(.right)) x += 1.0;
 
         return .{ .x = x, .y = y };
+    }
+
+    // ============ Gamepad Helper Methods ============
+
+    /// Get the primary (first connected) gamepad
+    pub fn getGamepad(self: *Input) ?*Gamepad {
+        return self.gamepads.getPrimary();
+    }
+
+    /// Get gamepad by player index (0 = first connected)
+    pub fn getGamepadByIndex(self: *Input, index: usize) ?*Gamepad {
+        return self.gamepads.getByIndex(index);
+    }
+
+    /// Get number of connected gamepads
+    pub fn getGamepadCount(self: *const Input) usize {
+        return self.gamepads.getCount();
+    }
+
+    /// Check if any gamepad is connected
+    pub fn hasGamepad(self: *const Input) bool {
+        return self.gamepads.getCount() > 0;
+    }
+
+    /// Check if using gamepad as last input device
+    pub fn isUsingGamepad(self: *const Input) bool {
+        return self.last_input_device == .gamepad;
+    }
+
+    // ============ Unified Input Methods ============
+
+    /// Get movement vector from WASD keys OR primary gamepad left stick
+    /// Returns combined input from keyboard and gamepad (keyboard takes priority if both active)
+    pub fn getMoveVector(self: *Input) StickValue {
+        const wasd = self.getWASD();
+
+        // If keyboard input, use it
+        if (wasd.x != 0 or wasd.y != 0) {
+            return wasd;
+        }
+
+        // Otherwise check gamepad
+        if (self.gamepads.getPrimary()) |gamepad| {
+            return gamepad.getLeftStick();
+        }
+
+        return .{ .x = 0, .y = 0 };
+    }
+
+    /// Get look vector from mouse delta OR primary gamepad right stick
+    /// Note: Mouse delta is in pixels, stick is normalized -1 to 1
+    /// Consider applying sensitivity/scaling in your game code
+    pub fn getLookVector(self: *Input) StickValue {
+        const mouse = self.getMouseDelta();
+
+        // If mouse moved, use it
+        if (mouse.x != 0 or mouse.y != 0) {
+            return mouse;
+        }
+
+        // Otherwise check gamepad
+        if (self.gamepads.getPrimary()) |gamepad| {
+            const stick = gamepad.getRightStick();
+            // Scale stick input to be more comparable to mouse (adjust as needed)
+            return .{ .x = stick.x * 10.0, .y = stick.y * 10.0 };
+        }
+
+        return .{ .x = 0, .y = 0 };
+    }
+
+    /// Check if "confirm" action is pressed (Space/Enter OR gamepad south button)
+    pub fn isConfirmPressed(self: *Input) bool {
+        if (self.isKeyJustPressed(.space) or self.isKeyJustPressed(.return_key)) {
+            return true;
+        }
+        if (self.gamepads.getPrimary()) |gamepad| {
+            return gamepad.isButtonJustPressed(.south);
+        }
+        return false;
+    }
+
+    /// Check if "cancel" action is pressed (Escape OR gamepad east button)
+    pub fn isCancelPressed(self: *Input) bool {
+        if (self.isKeyJustPressed(.escape)) {
+            return true;
+        }
+        if (self.gamepads.getPrimary()) |gamepad| {
+            return gamepad.isButtonJustPressed(.east);
+        }
+        return false;
+    }
+
+    /// Check if "jump" action (Space OR gamepad south button) is down
+    pub fn isJumpDown(self: *Input) bool {
+        if (self.isKeyDown(.space)) {
+            return true;
+        }
+        if (self.gamepads.getPrimary()) |gamepad| {
+            return gamepad.isButtonDown(.south);
+        }
+        return false;
+    }
+
+    /// Check if "jump" was just pressed this frame
+    pub fn isJumpPressed(self: *Input) bool {
+        if (self.isKeyJustPressed(.space)) {
+            return true;
+        }
+        if (self.gamepads.getPrimary()) |gamepad| {
+            return gamepad.isButtonJustPressed(.south);
+        }
+        return false;
     }
 };

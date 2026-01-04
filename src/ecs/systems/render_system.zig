@@ -152,7 +152,9 @@ pub const RenderSystem = struct {
 
             switch (light.light_type) {
                 .directional => {
-                    // Directional light uses direction only
+                    // 'dir' is entity's forward direction (where it "looks", -Z in OpenGL)
+                    // This is the direction light rays travel (toward surfaces), which is correct
+                    // The shader will negate to get L (direction from surface to light source)
                     engine.light_uniforms.setDirectionalLight(dir, light.color, light.intensity);
                 },
                 .point => {

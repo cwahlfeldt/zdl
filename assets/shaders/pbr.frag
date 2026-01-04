@@ -124,7 +124,8 @@ vec3 calculatePBRLight(vec3 L, vec3 radiance, vec3 N, vec3 V, vec3 albedo, float
     // Cook-Torrance BRDF
     float NDF = distributionGGX(N, H, roughness);
     float G = geometrySmith(N, V, L, roughness);
-    vec3 F = fresnelSchlick(max(dot(H, V), 0.0), F0);
+    // Use H·L for Fresnel - physically correct for specular reflection
+    vec3 F = fresnelSchlick(max(dot(H, L), 0.0), F0);
 
     // Specular
     vec3 numerator = NDF * G * F;
@@ -156,10 +157,13 @@ void main() {
     // UV with material transform
     vec2 uv = v_uv * material.uv_scale + material.uv_offset;
 
-    // Sample base color
+    // Sample base color (textures are in sRGB, convert to linear)
     vec4 base_color = material.base_color * v_color;
     if (material.has_base_color_texture != 0) {
-        base_color *= texture(u_base_color_tex, uv);
+        vec4 tex_color = texture(u_base_color_tex, uv);
+        // Convert from sRGB to linear space
+        tex_color.rgb = pow(tex_color.rgb, vec3(2.2));
+        base_color *= tex_color;
     }
 
     // Alpha handling
@@ -209,10 +213,13 @@ void main() {
         ao = mix(1.0, texture(u_ao_tex, uv).r, material.ao_strength);
     }
 
-    // Sample emissive
+    // Sample emissive (texture is in sRGB, convert to linear)
     vec3 emissive = material.emissive;
     if (material.has_emissive_texture != 0) {
-        emissive *= texture(u_emissive_tex, uv).rgb;
+        vec3 emissive_tex = texture(u_emissive_tex, uv).rgb;
+        // Convert from sRGB to linear space
+        emissive_tex = pow(emissive_tex, vec3(2.2));
+        emissive *= emissive_tex;
     }
 
     // View direction
@@ -227,6 +234,8 @@ void main() {
     vec3 Lo = vec3(0.0);
 
     // Directional light
+    // Note: directional_direction is the direction light rays travel (toward surfaces)
+    // L in BRDF is direction FROM surface TO light, so we negate
     {
         vec3 L = normalize(-lights.directional_direction.xyz);
         vec3 radiance = lights.directional_color_intensity.rgb * lights.directional_color_intensity.a;
@@ -269,7 +278,7 @@ void main() {
 
             // Spot cone attenuation
             float theta = dot(L, normalize(-light_dir));
-            float epsilon = inner_cos - outer_cos;
+            float epsilon = max(inner_cos - outer_cos, 0.0001);
             float spot_intensity = clamp((theta - outer_cos) / epsilon, 0.0, 1.0);
 
             if (spot_intensity > 0.0) {
@@ -280,14 +289,49 @@ void main() {
         }
     }
 
-    // Ambient lighting (simplified IBL approximation)
-    vec3 ambient = lights.ambient_color_intensity.rgb * lights.ambient_color_intensity.a * albedo * ao;
+    // Ambient lighting with Fresnel-based environment approximation
+    float NdotV = max(dot(N, V), 0.0);
+    vec3 F_ambient = F0 + (max(vec3(1.0 - roughness), F0) - F0) * pow(1.0 - NdotV, 5.0);
+
+    // Diffuse ambient (reduced for metals)
+    vec3 kD_ambient = (1.0 - F_ambient) * (1.0 - metallic);
+    vec3 diffuse_ambient = kD_ambient * albedo * lights.ambient_color_intensity.rgb * lights.ambient_color_intensity.a;
+
+    // Fake environment reflection for metals
+    // Simulate a simple gradient environment (sky above, ground below)
+    vec3 R = reflect(-V, N);  // Reflection vector
+    float sky_factor = R.y * 0.5 + 0.5;  // 0 = ground, 1 = sky
+    vec3 sky_color = vec3(0.6, 0.7, 0.9);   // Light blue sky
+    vec3 ground_color = vec3(0.2, 0.15, 0.1);  // Brown ground
+    vec3 env_color = mix(ground_color, sky_color, sky_factor);
+
+    // Roughness blurs the environment reflection
+    float env_mip = roughness * roughness;  // Simulate mip level blur
+    env_color = mix(env_color, vec3(0.3, 0.35, 0.4), env_mip);  // Blend toward average as roughness increases
+
+    // Specular ambient (environment reflection)
+    vec3 specular_ambient = F_ambient * env_color * (1.0 - roughness * 0.5);
+
+    vec3 ambient = (diffuse_ambient + specular_ambient) * ao;
 
     // Final color
     vec3 color = ambient + Lo + emissive;
 
-    // HDR tonemapping (Reinhard)
-    color = color / (color + vec3(1.0));
+    // DEBUG: Uncomment one of these to debug:
+    // color = N * 0.5 + 0.5;  // View normals (should show color variation on sphere)
+    // color = vec3(roughness);  // View roughness
+    // color = vec3(metallic);  // View metallic
+    // color = V * 0.5 + 0.5;  // View direction
+    // color = Lo;  // Direct lighting only (before tonemapping)
+
+    // ACES filmic tonemapping (better contrast than Reinhard)
+    vec3 x = color;
+    float a = 2.51;
+    float b = 0.03;
+    float c = 2.43;
+    float d = 0.59;
+    float e = 0.14;
+    color = clamp((x * (a * x + b)) / (x * (c * x + d) + e), 0.0, 1.0);
 
     // Gamma correction
     color = pow(color, vec3(1.0 / 2.2));

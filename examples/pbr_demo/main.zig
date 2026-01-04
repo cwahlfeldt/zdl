@@ -38,6 +38,9 @@ pub fn main() !void {
     try eng.initPBR();
     std.debug.print("PBR rendering initialized: {}\n", .{eng.hasPBR()});
 
+    // Set up ambient lighting for better PBR visibility
+    eng.light_uniforms.setAmbient(Vec3.init(0.15, 0.15, 0.2), 1.0);
+
     // Create scene
     var scene = Scene.init(allocator);
     defer scene.deinit();
@@ -149,21 +152,30 @@ pub fn main() !void {
     const floor_mat = Material.dielectric(0.3, 0.3, 0.35, 0.8);
     try scene.addComponent(floor_entity, MeshRendererComponent.withMaterial(&plane_mesh, floor_mat));
 
-    // Create directional light (sun)
+    // Create directional light (sun) - pointing straight down for clear top lighting
     const sun_entity = try scene.createEntity();
     var sun_transform = TransformComponent.init();
-    sun_transform.setRotationEuler(-0.6, 0.3, 0);
+    // Point straight down (negative Y direction)
+    sun_transform.setRotationEuler(-std.math.pi / 2.0, 0, 0);
     try scene.addComponent(sun_entity, sun_transform);
-    try scene.addComponent(sun_entity, LightComponent.directional(Vec3.init(1, 0.95, 0.9), 2.0));
+    // Strong white sunlight
+    try scene.addComponent(sun_entity, LightComponent.directional(Vec3.init(1.0, 1.0, 1.0), 5.0));
 
-    // Create point lights
+    // Create point lights - very bright and close for visible effect
     point_light_entity = try scene.createEntity();
-    try scene.addComponent(point_light_entity, TransformComponent.withPosition(Vec3.init(5, 3, 5)));
-    try scene.addComponent(point_light_entity, LightComponent.point(Vec3.init(0.2, 0.5, 1.0), 5.0, 15.0));
+    try scene.addComponent(point_light_entity, TransformComponent.withPosition(Vec3.init(0, 5, 8)));
+    // Very bright white point light in front
+    try scene.addComponent(point_light_entity, LightComponent.point(Vec3.init(1.0, 1.0, 1.0), 30.0, 30.0));
 
     const point_light2 = try scene.createEntity();
-    try scene.addComponent(point_light2, TransformComponent.withPosition(Vec3.init(-5, 3, 5)));
-    try scene.addComponent(point_light2, LightComponent.point(Vec3.init(1.0, 0.4, 0.2), 5.0, 15.0));
+    try scene.addComponent(point_light2, TransformComponent.withPosition(Vec3.init(-6, 4, 6)));
+    // Bright blue point light
+    try scene.addComponent(point_light2, LightComponent.point(Vec3.init(0.3, 0.5, 1.0), 20.0, 25.0));
+
+    const point_light3 = try scene.createEntity();
+    try scene.addComponent(point_light3, TransformComponent.withPosition(Vec3.init(6, 4, 6)));
+    // Bright orange point light
+    try scene.addComponent(point_light3, LightComponent.point(Vec3.init(1.0, 0.5, 0.2), 20.0, 25.0));
 
     std.debug.print("\nPBR Demo initialized!\n", .{});
     std.debug.print("Scene shows {d}x{d} sphere grid with varying metallic/roughness\n", .{ grid_size, grid_size });

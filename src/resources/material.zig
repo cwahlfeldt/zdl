@@ -164,31 +164,39 @@ pub const AlphaMode = enum {
 
 /// GPU-compatible material uniforms (std140 layout).
 /// This structure is uploaded to the GPU for shader access.
+///
+/// std140 layout rules:
+/// - vec4/mat4 are 16-byte aligned
+/// - vec3 is 16-byte aligned (takes 16 bytes with padding)
+/// - vec2 is 8-byte aligned
+/// - float/int is 4-byte aligned
+/// - Arrays have elements aligned to 16 bytes
 pub const MaterialUniforms = extern struct {
-    // Base color (16 bytes)
+    // Block 0: Base color (16 bytes, offset 0)
     base_color: [4]f32,
 
-    // Metallic, roughness, normal scale, ao strength (16 bytes)
+    // Block 1: Metallic, roughness, normal scale, ao strength (16 bytes, offset 16)
     metallic: f32,
     roughness: f32,
     normal_scale: f32,
     ao_strength: f32,
 
-    // Emissive RGB + alpha cutoff (16 bytes)
+    // Block 2: Emissive RGB + alpha cutoff (16 bytes, offset 32)
+    // In std140, vec3 followed by float packs into 16 bytes
     emissive: [3]f32,
     alpha_cutoff: f32,
 
-    // UV scale and offset (16 bytes)
+    // Block 3: UV scale and offset (16 bytes, offset 48)
     uv_scale: [2]f32,
     uv_offset: [2]f32,
 
-    // Texture flags (which textures are bound) (16 bytes for alignment)
+    // Block 4: Texture flags (16 bytes, offset 64)
     has_base_color_texture: u32,
     has_normal_texture: u32,
     has_metallic_roughness_texture: u32,
     has_ao_texture: u32,
 
-    // Additional flags (16 bytes for alignment)
+    // Block 5: Additional flags (16 bytes, offset 80)
     has_emissive_texture: u32,
     alpha_mode: u32, // 0 = opaque, 1 = mask, 2 = blend
     _pad: [2]u32 = .{ 0, 0 },
