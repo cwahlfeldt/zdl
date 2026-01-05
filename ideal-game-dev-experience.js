@@ -1,16 +1,18 @@
-// ideal game dev experience.
+// Ideal game dev experience.
 //
-// uses the custom zdl engine
-// the ecs uses logic and is tied to the rendering
-// system to quickly work on the game.
+// Built on the custom ZDL engine.
 //
-// it creates the rendered camera and registers it with the
-// ecs system for control of the camera data (components)
+// The ECS handles game logic and is tightly integrated with the
+// rendering system to enable fast iteration and rapid development.
 //
-// It will have a cli `zdl` that you can
-// 1. Create projects `zdl create <filepath>`
-// 2. Run game `zdl run <optional-file-path>`
-// 3. Build Game `zdl build <optional-file-path>`
+// For example: A rendered camera is created and registered with the ECS,
+// allowing full control of camera data through components, while also ading
+// it to our 3d world.
+//
+// Includes a `zdl` CLI for common workflows:
+// 1. Create a project: `zdl create <filepath>`
+// 2. Run the game: `zdl run [optional-file-path]`
+// 3. Build the game: `zdl build [optional-file-path]`
 
 import zdl from "zdl";
 
@@ -21,31 +23,26 @@ import zdl from "zdl";
 // Tag-style component
 const Player = () => ({
   type: "Player",
-  name: "Player"
+  name: "Player",
 });
 
 // Data component
 const Position = (x = 0, y = 0, z = 0) => ({
   type: "Position",
-  position: { x, y, z }
+  position: { x, y, z },
 });
 
-const Camera = ({
-  fov = 60,
-  near = 0.1,
-  far = 1000,
-  active = true
-} = {}) => ({
+const Camera = ({ fov = 60, near = 0.1, far = 1000, active = true } = {}) => ({
   type: "Camera",
   fov,
   near,
   far,
-  active
+  active,
 });
 
 const Mesh = (path = "assets/cube.glb") => ({
   type: "Mesh",
-  path
+  path,
 });
 
 // additional components can exist here
@@ -61,48 +58,32 @@ export function initialSceneMain() {
   // initialize the window
   const window = zdl.createWindow({
     size: "1920x1080",
-    title: "ZDL Example Game"
+    title: "ZDL Example Game",
   });
 
   // create the world (ecs + render world)
   const world = zdl.createWorld(window);
 
   // register components with the world
-  world.addComponents([
-    Player,
-    Position,
-    Camera,
-    Mesh,
-    ...
-  ]);
+  world.addComponents([Player, Position, Camera, Mesh]);
 
   // create player entity
   const player = world.addEntity((ctx) => ({
     description: "Main player entity",
-    name: "player"
-  }))(
-    Player(),
-    Position(0, 0, 0),
-    Mesh("assets/player.glb")
-  );
+    name: "player",
+  }))(Player(), Position(0, 0, 0), Mesh("assets/player.glb"));
 
   // create camera entity
   const camera = world.addEntity((ctx) => ({
     description: "Main camera",
-    name: "camera"
-  }))(
-    Camera({ fov: 75 }),
-    Position(0, 2, 5)
-  );
+    name: "camera",
+  }))(Camera({ fov: 75 }), Position(0, 2, 5));
 
   // create a cube mesh entity
   const cubeMesh = world.addEntity((ctx) => ({
     description: "Test cube",
-    name: "cube"
-  }))(
-    Position(2, 0, 0),
-    Mesh("assets/cube.glb")
-  );
+    name: "cube",
+  }))(Position(2, 0, 0), Mesh("assets/cube.glb"));
 
   // register systems
   world.addSystem(moveSystem, "update");
@@ -125,11 +106,10 @@ export function moveSystem(world) {
     if (world.hasComponent(entity, Position)) {
       const pos = world.getComponent(entity, Position);
 
-      world.updateComponent(entity, Position(
-        pos.position.x + 1,
-        pos.position.y,
-        pos.position.z
-      ));
+      world.updateComponent(
+        entity,
+        Position(pos.position.x + 1, pos.position.y, pos.position.z)
+      );
     }
   }
 }

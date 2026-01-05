@@ -17,6 +17,12 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    // Get zflecs dependency for ECS
+    const zflecs = b.dependency("zflecs", .{
+        .target = target,
+        .optimize = optimize,
+    });
+
     // Create engine module
     const engine_module = b.createModule(.{
         .root_source_file = b.path("src/engine.zig"),
@@ -25,6 +31,8 @@ pub fn build(b: *std.Build) void {
     });
     engine_module.addImport("sdl3", sdl3.module("sdl3"));
     engine_module.addImport("quickjs", quickjs.module("quickjs"));
+    engine_module.addImport("zflecs", zflecs.module("root"));
+    engine_module.linkLibrary(zflecs.artifact("flecs"));
 
     // Build Asset Pipeline tool
     const zdl_assets = b.addExecutable(.{
@@ -258,6 +266,8 @@ pub fn build(b: *std.Build) void {
     });
     engine_tests.root_module.addImport("sdl3", sdl3.module("sdl3"));
     engine_tests.root_module.addImport("quickjs", quickjs.module("quickjs"));
+    engine_tests.root_module.addImport("zflecs", zflecs.module("root"));
+    engine_tests.root_module.linkLibrary(zflecs.artifact("flecs"));
 
     const run_tests = b.addRunArtifact(engine_tests);
     const test_step = b.step("test", "Run engine unit tests");

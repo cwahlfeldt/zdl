@@ -119,7 +119,7 @@ pub const ScriptComponent = struct {
 
             // Build transform getter code
             var get_transform_code: [128]u8 = undefined;
-            const transform_code_str = std.fmt.bufPrintZ(&get_transform_code, "__entity_getTransform({{index:{d},generation:{d},valid:true}})", .{ entity.index, entity.generation }) catch return error.Exception;
+            const transform_code_str = std.fmt.bufPrintZ(&get_transform_code, "__entity_getTransform({{id:{d},valid:true}})", .{entity.id}) catch return error.Exception;
             const transform_js = ctx.eval(transform_code_str, "<transform>") catch return error.Exception;
             ctx.setProperty(self.instance, "transform", transform_js) catch {};
         } else {

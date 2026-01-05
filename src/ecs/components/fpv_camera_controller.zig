@@ -98,8 +98,7 @@ pub const FpvCameraController = struct {
             transform.translate(Vec3.init(0, -self.move_speed * delta_time, 0));
         }
 
-        transform.markDirty();
-
+        // Note: With Flecs ECS, component modifications are automatically tracked
         return should_capture;
     }
 

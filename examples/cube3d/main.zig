@@ -43,26 +43,26 @@ pub fn main() !void {
     try plane_mesh.upload(&eng.device);
 
     // Create camera entity
-    const camera_entity = try scene.createEntity();
+    const camera_entity = scene.createEntity();
     var camera_transform = TransformComponent.withPosition(Vec3.init(0, 2, 5));
     camera_transform.lookAt(Vec3.init(0, 0, 0), Vec3.init(0, 1, 0));
-    try scene.addComponent(camera_entity, camera_transform);
-    try scene.addComponent(camera_entity, CameraComponent.init());
+    scene.addComponent(camera_entity, camera_transform);
+    scene.addComponent(camera_entity, CameraComponent.init());
     scene.setActiveCamera(camera_entity);
 
     // Create cube entity
-    cube_entity = try scene.createEntity();
+    cube_entity = scene.createEntity();
     var cube_transform = TransformComponent.withPosition(Vec3.init(0, 0, 0));
     cube_transform.setScale(Vec3.init(2, 2, 2));
-    try scene.addComponent(cube_entity, cube_transform);
-    try scene.addComponent(cube_entity, MeshRendererComponent.init(&cube_mesh));
+    scene.addComponent(cube_entity, cube_transform);
+    scene.addComponent(cube_entity, MeshRendererComponent.init(&cube_mesh));
 
     // Create plane entity
-    const plane_entity = try scene.createEntity();
+    const plane_entity = scene.createEntity();
     var plane_transform = TransformComponent.withPosition(Vec3.init(0, -2, 0));
     plane_transform.setScale(Vec3.init(10, 1, 10));
-    try scene.addComponent(plane_entity, plane_transform);
-    try scene.addComponent(plane_entity, MeshRendererComponent.init(&plane_mesh));
+    scene.addComponent(plane_entity, plane_transform);
+    scene.addComponent(plane_entity, MeshRendererComponent.init(&plane_mesh));
 
     std.debug.print("3D Cube Demo initialized!\n", .{});
     std.debug.print("Controls:\n", .{});

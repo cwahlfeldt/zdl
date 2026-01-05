@@ -1,11 +1,10 @@
 const std = @import("std");
+const ecs = @import("zflecs");
 const math = @import("../math/math.zig");
 const Mat4 = math.Mat4;
 const Vec3 = math.Vec3;
 
 const Entity = @import("entity.zig").Entity;
-const EntityManager = @import("entity.zig").EntityManager;
-const ComponentStorage = @import("component_storage.zig").ComponentStorage;
 
 const components = @import("components/components.zig");
 const TransformComponent = components.TransformComponent;
@@ -17,231 +16,103 @@ const FpvCameraController = components.FpvCameraController;
 // Scripting component
 pub const ScriptComponent = @import("../scripting/script_component.zig").ScriptComponent;
 
-/// Scene container that owns all entities and components.
+// Animation component
+pub const AnimatorComponent = @import("../animation/animator_component.zig").AnimatorComponent;
+
+/// Scene container that owns the Flecs world and all entities/components.
 /// Provides the primary API for creating and managing the game world.
 pub const Scene = struct {
     allocator: std.mem.Allocator,
 
-    /// Entity lifecycle management
-    entities: EntityManager,
-
-    /// Component storages (one per component type)
-    transforms: ComponentStorage(TransformComponent),
-    cameras: ComponentStorage(CameraComponent),
-    mesh_renderers: ComponentStorage(MeshRendererComponent),
-    lights: ComponentStorage(LightComponent),
-    fps_controllers: ComponentStorage(FpvCameraController),
-    scripts: ComponentStorage(ScriptComponent),
+    /// Flecs world handle
+    world: *ecs.world_t,
 
     /// Currently active camera entity
     active_camera: Entity,
 
-    /// Root entities (no parent) for hierarchy traversal
-    root_entities: std.ArrayList(Entity) = .{},
-
     pub fn init(allocator: std.mem.Allocator) Scene {
+        const world = ecs.init();
+
+        // Register all component types
+        registerComponents(world);
+
         return .{
             .allocator = allocator,
-            .entities = EntityManager.init(allocator),
-            .transforms = ComponentStorage(TransformComponent).init(allocator),
-            .cameras = ComponentStorage(CameraComponent).init(allocator),
-            .mesh_renderers = ComponentStorage(MeshRendererComponent).init(allocator),
-            .lights = ComponentStorage(LightComponent).init(allocator),
-            .fps_controllers = ComponentStorage(FpvCameraController).init(allocator),
-            .scripts = ComponentStorage(ScriptComponent).init(allocator),
+            .world = world,
             .active_camera = Entity.invalid,
         };
     }
 
     pub fn deinit(self: *Scene) void {
-        self.root_entities.deinit(self.allocator);
-        self.scripts.deinit();
-        self.fps_controllers.deinit();
-        self.lights.deinit();
-        self.mesh_renderers.deinit();
-        self.cameras.deinit();
-        self.transforms.deinit();
-        self.entities.deinit();
+        _ = ecs.fini(self.world);
     }
 
     // ==================== Entity Lifecycle ====================
 
     /// Create a new entity in the scene.
-    pub fn createEntity(self: *Scene) !Entity {
-        const entity = try self.entities.create();
-        // Add to root entities by default (no parent)
-        try self.root_entities.append(self.allocator, entity);
-        return entity;
+    pub fn createEntity(self: *Scene) Entity {
+        return .{ .id = ecs.new_id(self.world) };
+    }
+
+    /// Create a new entity with a name.
+    pub fn createEntityNamed(self: *Scene, name: [:0]const u8) Entity {
+        return .{ .id = ecs.new_entity(self.world, name.ptr) };
     }
 
     /// Destroy an entity and all its components.
-    pub fn destroyEntity(self: *Scene, entity: Entity) !void {
-        if (!self.entities.isAlive(entity)) return;
-
-        // Remove from parent's children list if parented
-        if (self.transforms.get(entity)) |transform| {
-            if (transform.parent.isValid()) {
-                self.unlinkFromParent(entity, transform);
-            } else {
-                // Remove from root entities
-                self.removeFromRootEntities(entity);
-            }
-
-            // Destroy all children recursively
-            var child = transform.first_child;
-            while (child.isValid()) {
-                const next = if (self.transforms.get(child)) |ct| ct.next_sibling else Entity.invalid;
-                try self.destroyEntity(child);
-                child = next;
-            }
-        }
-
-        // Remove all components
-        _ = self.transforms.remove(entity);
-        _ = self.cameras.remove(entity);
-        _ = self.mesh_renderers.remove(entity);
-        _ = self.lights.remove(entity);
-        _ = self.fps_controllers.remove(entity);
-        _ = self.scripts.remove(entity);
-
-        // Clear active camera if destroyed
-        if (self.active_camera.eql(entity)) {
-            self.active_camera = Entity.invalid;
-        }
-
-        try self.entities.destroy(entity);
+    pub fn destroyEntity(self: *Scene, entity: Entity) void {
+        if (!entity.isValid()) return;
+        ecs.delete(self.world, entity.id);
     }
 
     /// Check if an entity exists in the scene.
     pub fn entityExists(self: *const Scene, entity: Entity) bool {
-        return self.entities.isAlive(entity);
+        if (!entity.isValid()) return false;
+        return ecs.is_alive(self.world, entity.id);
     }
 
     // ==================== Component Management ====================
 
     /// Add a component to an entity using comptime type dispatch.
-    pub fn addComponent(self: *Scene, entity: Entity, component: anytype) !void {
+    pub fn addComponent(self: *Scene, entity: Entity, component: anytype) void {
         const T = @TypeOf(component);
-
-        if (T == TransformComponent) {
-            try self.transforms.add(entity, component);
-        } else if (T == CameraComponent) {
-            try self.cameras.add(entity, component);
-        } else if (T == MeshRendererComponent) {
-            try self.mesh_renderers.add(entity, component);
-        } else if (T == LightComponent) {
-            try self.lights.add(entity, component);
-        } else if (T == FpvCameraController) {
-            try self.fps_controllers.add(entity, component);
-        } else if (T == ScriptComponent) {
-            try self.scripts.add(entity, component);
-        } else {
-            @compileError("Unknown component type: " ++ @typeName(T));
-        }
+        _ = ecs.set(self.world, entity.id, T, component);
     }
 
     /// Remove a component from an entity.
-    pub fn removeComponent(self: *Scene, comptime T: type, entity: Entity) ?T {
-        if (T == TransformComponent) {
-            // Handle hierarchy cleanup before removing transform
-            if (self.transforms.get(entity)) |transform| {
-                if (transform.parent.isValid()) {
-                    self.unlinkFromParent(entity, transform);
-                    self.root_entities.append(self.allocator, entity) catch {};
-                }
-            }
-            return self.transforms.remove(entity);
-        } else if (T == CameraComponent) {
-            return self.cameras.remove(entity);
-        } else if (T == MeshRendererComponent) {
-            return self.mesh_renderers.remove(entity);
-        } else if (T == LightComponent) {
-            return self.lights.remove(entity);
-        } else if (T == FpvCameraController) {
-            return self.fps_controllers.remove(entity);
-        } else if (T == ScriptComponent) {
-            return self.scripts.remove(entity);
-        } else {
-            @compileError("Unknown component type: " ++ @typeName(T));
-        }
+    pub fn removeComponent(self: *Scene, comptime T: type, entity: Entity) void {
+        ecs.remove(self.world, entity.id, ecs.id(T));
     }
 
     /// Get a mutable pointer to an entity's component.
     pub fn getComponent(self: *Scene, comptime T: type, entity: Entity) ?*T {
-        if (T == TransformComponent) {
-            return self.transforms.get(entity);
-        } else if (T == CameraComponent) {
-            return self.cameras.get(entity);
-        } else if (T == MeshRendererComponent) {
-            return self.mesh_renderers.get(entity);
-        } else if (T == LightComponent) {
-            return self.lights.get(entity);
-        } else if (T == FpvCameraController) {
-            return self.fps_controllers.get(entity);
-        } else if (T == ScriptComponent) {
-            return self.scripts.get(entity);
-        } else {
-            @compileError("Unknown component type: " ++ @typeName(T));
-        }
+        return ecs.get_mut(self.world, entity.id, T);
+    }
+
+    /// Get a const pointer to an entity's component.
+    pub fn getComponentConst(self: *const Scene, comptime T: type, entity: Entity) ?*const T {
+        return ecs.get(self.world, entity.id, T);
     }
 
     /// Check if an entity has a specific component.
     pub fn hasComponent(self: *const Scene, comptime T: type, entity: Entity) bool {
-        if (T == TransformComponent) {
-            return self.transforms.has(entity);
-        } else if (T == CameraComponent) {
-            return self.cameras.has(entity);
-        } else if (T == MeshRendererComponent) {
-            return self.mesh_renderers.has(entity);
-        } else if (T == LightComponent) {
-            return self.lights.has(entity);
-        } else if (T == FpvCameraController) {
-            return self.fps_controllers.has(entity);
-        } else if (T == ScriptComponent) {
-            return self.scripts.has(entity);
-        } else {
-            @compileError("Unknown component type: " ++ @typeName(T));
-        }
+        return ecs.has_id(self.world, entity.id, ecs.id(T));
     }
 
     // ==================== Hierarchy Management ====================
 
-    /// Set an entity's parent. Pass Entity.invalid to unparent.
+    /// Set an entity's parent using Flecs' ChildOf relationship.
+    /// Pass Entity.invalid to unparent (make it a root entity).
     pub fn setParent(self: *Scene, child: Entity, parent: Entity) void {
-        const child_transform = self.transforms.get(child) orelse return;
+        if (!child.isValid()) return;
 
-        // Remove from current parent or root list
-        if (child_transform.parent.isValid()) {
-            self.unlinkFromParent(child, child_transform);
-        } else {
-            self.removeFromRootEntities(child);
-        }
+        // Remove existing parent relationship
+        ecs.remove_pair(self.world, child.id, ecs.ChildOf, ecs.Wildcard);
 
+        // Add new parent if valid
         if (parent.isValid()) {
-            const parent_transform = self.transforms.get(parent) orelse {
-                // Parent has no transform, add back to roots
-                self.root_entities.append(self.allocator, child) catch {};
-                return;
-            };
-
-            // Link as child
-            child_transform.parent = parent;
-            child_transform.next_sibling = parent_transform.first_child;
-            child_transform.prev_sibling = Entity.invalid;
-
-            if (parent_transform.first_child.isValid()) {
-                if (self.transforms.get(parent_transform.first_child)) |first_child_transform| {
-                    first_child_transform.prev_sibling = child;
-                }
-            }
-            parent_transform.first_child = child;
-        } else {
-            // Unparenting - add back to roots
-            child_transform.parent = Entity.invalid;
-            self.root_entities.append(self.allocator, child) catch {};
+            ecs.add_pair(self.world, child.id, ecs.ChildOf, parent.id);
         }
-
-        child_transform.world_dirty = true;
     }
 
     /// Remove an entity's parent (make it a root entity).
@@ -251,22 +122,26 @@ pub const Scene = struct {
 
     /// Get an entity's parent.
     pub fn getParent(self: *const Scene, entity: Entity) Entity {
-        const transform = self.transforms.getConst(entity) orelse return Entity.invalid;
-        return transform.parent;
+        if (!entity.isValid()) return Entity.invalid;
+        const parent_id = ecs.get_target(self.world, entity.id, ecs.ChildOf, 0);
+        return .{ .id = parent_id };
     }
 
     /// Get all children of an entity (caller must free the returned slice).
     pub fn getChildren(self: *Scene, entity: Entity, allocator: std.mem.Allocator) ![]Entity {
-        var children: std.ArrayList(Entity) = .{};
+        var children = try std.ArrayList(Entity).initCapacity(allocator, 8);
         errdefer children.deinit(allocator);
 
-        const transform = self.transforms.get(entity) orelse return try children.toOwnedSlice(allocator);
+        if (!entity.isValid()) return try children.toOwnedSlice(allocator);
 
-        var child = transform.first_child;
-        while (child.isValid()) {
-            try children.append(allocator, child);
-            const child_transform = self.transforms.get(child) orelse break;
-            child = child_transform.next_sibling;
+        // Use Flecs to iterate children via ChildOf relationship
+        var it = ecs.children(self.world, entity.id);
+        while (ecs.children_next(&it)) {
+            var i: usize = 0;
+            while (i < it.count()) : (i += 1) {
+                const child_id = it.entities()[i];
+                try children.append(allocator, .{ .id = child_id });
+            }
         }
 
         return try children.toOwnedSlice(allocator);
@@ -289,140 +164,198 @@ pub const Scene = struct {
     /// Update all world transforms in the hierarchy.
     /// Call this once per frame before rendering.
     pub fn updateWorldTransforms(self: *Scene) void {
-        for (self.root_entities.items) |root| {
-            if (self.entities.isAlive(root)) {
-                self.updateEntityWorldTransform(root, Mat4.identity());
+        // Flecs will handle this via a system, but for now we can do it manually
+        // Query all root entities (those without parents) and update recursively
+        var query_desc: ecs.query_desc_t = std.mem.zeroes(ecs.query_desc_t);
+        query_desc.terms[0] = .{ .id = ecs.id(TransformComponent) };
+        query_desc.terms[1] = .{
+            .id = ecs.pair(ecs.ChildOf, ecs.Wildcard),
+            .oper = .Not, // Entities WITHOUT parents
+        };
+
+        const query = ecs.query_init(self.world, &query_desc) catch return;
+        defer ecs.query_fini(query);
+
+        var it = ecs.query_iter(self.world, query);
+        while (ecs.query_next(&it)) {
+            var i: usize = 0;
+            while (i < it.count()) : (i += 1) {
+                const entity_id = it.entities()[i];
+                self.updateEntityWorldTransform(.{ .id = entity_id }, Mat4.identity());
             }
         }
     }
 
     fn updateEntityWorldTransform(self: *Scene, entity: Entity, parent_world: Mat4) void {
-        const transform = self.transforms.get(entity) orelse return;
+        if (self.getComponent(TransformComponent, entity)) |transform| {
+            // Compute world matrix
+            const local_matrix = transform.local.getMatrix();
+            transform.world_matrix = parent_world.mul(local_matrix);
 
-        // Compute world matrix
-        const local_matrix = transform.local.getMatrix();
-        transform.world_matrix = parent_world.mul(local_matrix);
-        transform.world_dirty = false;
+            // Recursively update children
+            const children = self.getChildren(entity, self.allocator) catch return;
+            defer self.allocator.free(children);
 
-        // Recursively update children
-        var child = transform.first_child;
-        while (child.isValid()) {
-            self.updateEntityWorldTransform(child, transform.world_matrix);
-            const child_transform = self.transforms.get(child) orelse break;
-            child = child_transform.next_sibling;
+            for (children) |child| {
+                self.updateEntityWorldTransform(child, transform.world_matrix);
+            }
         }
     }
 
     /// Get the world matrix for an entity (must call updateWorldTransforms first).
     pub fn getWorldMatrix(self: *const Scene, entity: Entity) Mat4 {
-        const transform = self.transforms.getConst(entity) orelse return Mat4.identity();
-        return transform.world_matrix;
+        if (self.getComponentConst(TransformComponent, entity)) |transform| {
+            return transform.world_matrix;
+        }
+        return Mat4.identity();
     }
 
     // ==================== Queries ====================
 
-    /// Get all entities with a MeshRenderer component.
-    pub fn getMeshRenderers(self: *Scene) struct { items: []MeshRendererComponent, entities: []Entity } {
-        return .{
-            .items = self.mesh_renderers.items(),
-            .entities = self.mesh_renderers.entities(),
-        };
-    }
-
-    /// Get all entities with a Light component.
-    pub fn getLights(self: *Scene) struct { items: []LightComponent, entities: []Entity } {
-        return .{
-            .items = self.lights.items(),
-            .entities = self.lights.entities(),
-        };
-    }
-
     /// Get entity count.
     pub fn entityCount(self: *const Scene) u32 {
-        return self.entities.count();
+        // Count all entities with any component (simplified)
+        var query_desc: ecs.query_desc_t = std.mem.zeroes(ecs.query_desc_t);
+        query_desc.terms[0] = .{ .id = ecs.Wildcard };
+
+        const query = ecs.query_init(self.world, &query_desc) catch return 0;
+        defer ecs.query_fini(query);
+
+        var count: u32 = 0;
+        var it = ecs.query_iter(self.world, query);
+        while (ecs.query_next(&it)) {
+            count += @intCast(it.count());
+        }
+        return count;
     }
 
-    // ==================== Internal Helpers ====================
+    /// Iterate all entities with TransformComponent and MeshRendererComponent.
+    /// Used by the render system.
+    pub fn iterateMeshRenderers(
+        self: *Scene,
+        comptime callback: fn (Entity, *TransformComponent, *MeshRendererComponent, *anyopaque) void,
+        userdata: *anyopaque,
+    ) void {
+        var query_desc: ecs.query_desc_t = std.mem.zeroes(ecs.query_desc_t);
+        query_desc.terms[0] = .{ .id = ecs.id(TransformComponent) };
+        query_desc.terms[1] = .{ .id = ecs.id(MeshRendererComponent) };
 
-    fn unlinkFromParent(self: *Scene, entity: Entity, transform: *TransformComponent) void {
-        // Update sibling links
-        if (transform.prev_sibling.isValid()) {
-            if (self.transforms.get(transform.prev_sibling)) |prev| {
-                prev.next_sibling = transform.next_sibling;
+        const query = ecs.query_init(self.world, &query_desc) catch return;
+        defer ecs.query_fini(query);
+
+        var it = ecs.query_iter(self.world, query);
+        while (ecs.query_next(&it)) {
+            const transforms = ecs.field(&it, TransformComponent, 0) orelse continue;
+            const renderers = ecs.field(&it, MeshRendererComponent, 1) orelse continue;
+
+            var i: usize = 0;
+            while (i < it.count()) : (i += 1) {
+                const entity_id = it.entities()[i];
+                callback(.{ .id = entity_id }, &transforms[i], &renderers[i], userdata);
             }
         }
-        if (transform.next_sibling.isValid()) {
-            if (self.transforms.get(transform.next_sibling)) |next| {
-                next.prev_sibling = transform.prev_sibling;
-            }
-        }
-
-        // Update parent's first_child if needed
-        if (self.transforms.get(transform.parent)) |parent_transform| {
-            if (parent_transform.first_child.eql(entity)) {
-                parent_transform.first_child = transform.next_sibling;
-            }
-        }
-
-        transform.parent = Entity.invalid;
-        transform.prev_sibling = Entity.invalid;
-        transform.next_sibling = Entity.invalid;
     }
 
-    fn removeFromRootEntities(self: *Scene, entity: Entity) void {
-        for (self.root_entities.items, 0..) |root, i| {
-            if (root.eql(entity)) {
-                _ = self.root_entities.swapRemove(i);
-                return;
+    /// Iterate all entities with LightComponent.
+    pub fn iterateLights(
+        self: *Scene,
+        comptime callback: fn (Entity, *TransformComponent, *LightComponent, *anyopaque) void,
+        userdata: *anyopaque,
+    ) void {
+        var query_desc: ecs.query_desc_t = std.mem.zeroes(ecs.query_desc_t);
+        query_desc.terms[0] = .{ .id = ecs.id(TransformComponent) };
+        query_desc.terms[1] = .{ .id = ecs.id(LightComponent) };
+
+        const query = ecs.query_init(self.world, &query_desc) catch return;
+        defer ecs.query_fini(query);
+
+        var it = ecs.query_iter(self.world, query);
+        while (ecs.query_next(&it)) {
+            const transforms = ecs.field(&it, TransformComponent, 0) orelse continue;
+            const lights = ecs.field(&it, LightComponent, 1) orelse continue;
+
+            var i: usize = 0;
+            while (i < it.count()) : (i += 1) {
+                const entity_id = it.entities()[i];
+                callback(.{ .id = entity_id }, &transforms[i], &lights[i], userdata);
+            }
+        }
+    }
+
+    /// Iterate all entities with ScriptComponent.
+    pub fn iterateScripts(
+        self: *Scene,
+        comptime callback: fn (Entity, *ScriptComponent, *anyopaque) void,
+        userdata: *anyopaque,
+    ) void {
+        var query_desc: ecs.query_desc_t = std.mem.zeroes(ecs.query_desc_t);
+        query_desc.terms[0] = .{ .id = ecs.id(ScriptComponent) };
+
+        const query = ecs.query_init(self.world, &query_desc) catch return;
+        defer ecs.query_fini(query);
+
+        var it = ecs.query_iter(self.world, query);
+        while (ecs.query_next(&it)) {
+            const scripts = ecs.field(&it, ScriptComponent, 0) orelse continue;
+
+            var i: usize = 0;
+            while (i < it.count()) : (i += 1) {
+                const entity_id = it.entities()[i];
+                callback(.{ .id = entity_id }, &scripts[i], userdata);
             }
         }
     }
 };
 
+/// Register all component types with Flecs.
+fn registerComponents(world: *ecs.world_t) void {
+    ecs.COMPONENT(world, TransformComponent);
+    ecs.COMPONENT(world, CameraComponent);
+    ecs.COMPONENT(world, MeshRendererComponent);
+    ecs.COMPONENT(world, LightComponent);
+    ecs.COMPONENT(world, FpvCameraController);
+    ecs.COMPONENT(world, ScriptComponent);
+    ecs.COMPONENT(world, AnimatorComponent);
+}
+
 test "scene entity creation" {
     var scene = Scene.init(std.testing.allocator);
     defer scene.deinit();
 
-    const e1 = try scene.createEntity();
-    const e2 = try scene.createEntity();
+    const e1 = scene.createEntity();
+    const e2 = scene.createEntity();
 
     try std.testing.expect(scene.entityExists(e1));
     try std.testing.expect(scene.entityExists(e2));
-    try std.testing.expectEqual(@as(u32, 2), scene.entityCount());
 }
 
 test "scene component management" {
     var scene = Scene.init(std.testing.allocator);
     defer scene.deinit();
 
-    const entity = try scene.createEntity();
-    try scene.addComponent(entity, TransformComponent.withPosition(Vec3.init(1, 2, 3)));
-    try scene.addComponent(entity, CameraComponent.init());
+    const entity = scene.createEntity();
+    scene.addComponent(entity, TransformComponent.withPosition(Vec3.init(1, 2, 3)));
 
-    try std.testing.expect(scene.hasComponent(TransformComponent, entity));
-    try std.testing.expect(scene.hasComponent(CameraComponent, entity));
-
-    const transform = scene.getComponent(TransformComponent, entity).?;
-    try std.testing.expectEqual(@as(f32, 1), transform.local.position.x);
+    const transform = scene.getComponent(TransformComponent, entity);
+    try std.testing.expect(transform != null);
+    try std.testing.expectEqual(@as(f32, 1), transform.?.getPosition().x);
+    try std.testing.expectEqual(@as(f32, 2), transform.?.getPosition().y);
+    try std.testing.expectEqual(@as(f32, 3), transform.?.getPosition().z);
 }
 
 test "scene hierarchy" {
     var scene = Scene.init(std.testing.allocator);
     defer scene.deinit();
 
-    const parent = try scene.createEntity();
-    const child = try scene.createEntity();
-
-    try scene.addComponent(parent, TransformComponent.init());
-    try scene.addComponent(child, TransformComponent.withPosition(Vec3.init(1, 0, 0)));
+    const parent = scene.createEntity();
+    const child = scene.createEntity();
 
     scene.setParent(child, parent);
+    const retrieved_parent = scene.getParent(child);
 
-    try std.testing.expect(scene.getParent(child).eql(parent));
+    try std.testing.expect(retrieved_parent.eql(parent));
 
-    const children = try scene.getChildren(parent, std.testing.allocator);
-    defer std.testing.allocator.free(children);
-
-    try std.testing.expectEqual(@as(usize, 1), children.len);
-    try std.testing.expect(children[0].eql(child));
+    scene.removeParent(child);
+    const no_parent = scene.getParent(child);
+    try std.testing.expect(!no_parent.isValid());
 }

@@ -52,8 +52,8 @@ pub fn main() !void {
     defer scene.deinit();
 
     // Create camera entity with FPS controller
-    camera_entity = try scene.createEntity();
-    try scene.addComponent(camera_entity, CameraComponent.init());
+    camera_entity = scene.createEntity();
+    scene.addComponent(camera_entity, CameraComponent.init());
 
     const cam_pos = Vec3.init(0, 3, 8);
     const look_target = Vec3.init(0, 0, 0);
@@ -61,12 +61,12 @@ pub fn main() !void {
 
     var cam_transform = TransformComponent.withPosition(cam_pos);
     cam_transform.lookAt(look_target, Vec3.init(0, -1, 0));
-    try scene.addComponent(camera_entity, cam_transform);
+    scene.addComponent(camera_entity, cam_transform);
 
     // Create FPS controller and sync its yaw/pitch with the lookAt direction
     var fps_controller = FpvCameraController.init();
     fps_controller.lookAt(look_dir);
-    try scene.addComponent(camera_entity, fps_controller);
+    scene.addComponent(camera_entity, fps_controller);
 
     scene.setActiveCamera(camera_entity);
 
@@ -78,23 +78,23 @@ pub fn main() !void {
     std.debug.print("  ESC - Release mouse / Quit\n", .{});
 
     // Create floor plane
-    const floor = try scene.createEntity();
+    const floor = scene.createEntity();
     var floor_transform = TransformComponent.withPosition(Vec3.init(0, -10, 0));
     floor_transform.local.scale = Vec3.init(10, 1, 10);
-    try scene.addComponent(floor, floor_transform);
-    try scene.addComponent(floor, MeshRendererComponent.init(&plane_mesh));
+    scene.addComponent(floor, floor_transform);
+    scene.addComponent(floor, MeshRendererComponent.init(&plane_mesh));
 
     // Create parent cube
-    cube_entity = try scene.createEntity();
+    cube_entity = scene.createEntity();
     var cube_transform = TransformComponent.init();
     cube_transform.local.scale = Vec3.init(2, 2, 2); // Make it bigger
-    try scene.addComponent(cube_entity, cube_transform);
-    try scene.addComponent(cube_entity, MeshRendererComponent.init(&cube_mesh));
+    scene.addComponent(cube_entity, cube_transform);
+    scene.addComponent(cube_entity, MeshRendererComponent.init(&cube_mesh));
 
     // Create child cube (orbits around parent)
-    child_entity = try scene.createEntity();
-    try scene.addComponent(child_entity, TransformComponent.withPosition(Vec3.init(2.5, 4, 0)));
-    try scene.addComponent(child_entity, MeshRendererComponent.init(&cube_mesh));
+    child_entity = scene.createEntity();
+    scene.addComponent(child_entity, TransformComponent.withPosition(Vec3.init(2.5, 4, 0)));
+    scene.addComponent(child_entity, MeshRendererComponent.init(&cube_mesh));
 
     // Set parent-child relationship
     scene.setParent(child_entity, cube_entity);

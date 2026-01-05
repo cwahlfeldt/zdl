@@ -56,35 +56,35 @@ pub fn main() !void {
     try sphere_mesh.upload(&eng.device);
 
     // Create camera entity with FPS controller script
-    const camera_entity = try scene.createEntity();
+    const camera_entity = scene.createEntity();
     var camera_transform = TransformComponent.withPosition(Vec3.init(0, 2, 8));
     camera_transform.lookAt(Vec3.init(0, 0, 0), Vec3.init(0, 1, 0));
-    try scene.addComponent(camera_entity, camera_transform);
-    try scene.addComponent(camera_entity, CameraComponent.init());
-    try scene.addComponent(camera_entity, ScriptComponent.init("examples/scripting_demo/scripts/player.js"));
+    scene.addComponent(camera_entity, camera_transform);
+    scene.addComponent(camera_entity, CameraComponent.init());
+    scene.addComponent(camera_entity, ScriptComponent.init("examples/scripting_demo/scripts/player.js"));
     scene.setActiveCamera(camera_entity);
 
     // Create rotating cube entity
-    const cube_entity = try scene.createEntity();
+    const cube_entity = scene.createEntity();
     var cube_transform = TransformComponent.withPosition(Vec3.init(0, 1, 0));
     cube_transform.setScale(Vec3.init(1.5, 1.5, 1.5));
-    try scene.addComponent(cube_entity, cube_transform);
-    try scene.addComponent(cube_entity, MeshRendererComponent.init(&cube_mesh));
-    try scene.addComponent(cube_entity, ScriptComponent.init("examples/scripting_demo/scripts/rotator.js"));
+    scene.addComponent(cube_entity, cube_transform);
+    scene.addComponent(cube_entity, MeshRendererComponent.init(&cube_mesh));
+    scene.addComponent(cube_entity, ScriptComponent.init("examples/scripting_demo/scripts/rotator.js"));
 
     // Create orbiting sphere entity
-    const sphere_entity = try scene.createEntity();
+    const sphere_entity = scene.createEntity();
     const sphere_transform = TransformComponent.withPosition(Vec3.init(3, 1, 0));
-    try scene.addComponent(sphere_entity, sphere_transform);
-    try scene.addComponent(sphere_entity, MeshRendererComponent.init(&sphere_mesh));
-    try scene.addComponent(sphere_entity, ScriptComponent.init("examples/scripting_demo/scripts/orbiter.js"));
+    scene.addComponent(sphere_entity, sphere_transform);
+    scene.addComponent(sphere_entity, MeshRendererComponent.init(&sphere_mesh));
+    scene.addComponent(sphere_entity, ScriptComponent.init("examples/scripting_demo/scripts/orbiter.js"));
 
     // Create floor plane
-    const plane_entity = try scene.createEntity();
+    const plane_entity = scene.createEntity();
     var plane_transform = TransformComponent.withPosition(Vec3.init(0, -1, 0));
     plane_transform.setScale(Vec3.init(20, 1, 20));
-    try scene.addComponent(plane_entity, plane_transform);
-    try scene.addComponent(plane_entity, MeshRendererComponent.init(&plane_mesh));
+    scene.addComponent(plane_entity, plane_transform);
+    scene.addComponent(plane_entity, MeshRendererComponent.init(&plane_mesh));
 
     std.debug.print("\n=== JavaScript Scripting Demo ===\n", .{});
     std.debug.print("This demo showcases JavaScript scripting with hot-reload!\n\n", .{});

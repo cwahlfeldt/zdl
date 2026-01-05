@@ -72,10 +72,10 @@ pub fn main() !void {
     try plane_mesh.upload(&eng.device);
 
     // Create camera entity with FPV controller
-    const camera_entity = try scene.createEntity();
+    const camera_entity = scene.createEntity();
     const camera_transform = TransformComponent.withPosition(Vec3.init(0, 2, 5));
-    try scene.addComponent(camera_entity, camera_transform);
-    try scene.addComponent(camera_entity, CameraComponent.init());
+    scene.addComponent(camera_entity, camera_transform);
+    scene.addComponent(camera_entity, CameraComponent.init());
 
     var fpv_controller = FpvCameraController.initWithConfig(.{
         .sensitivity = 0.003,
@@ -84,20 +84,20 @@ pub fn main() !void {
     });
     const look_dir = Vec3.init(0, 0, 0).sub(Vec3.init(0, 2, 5)).normalize();
     fpv_controller.lookAt(look_dir);
-    try scene.addComponent(camera_entity, fpv_controller);
+    scene.addComponent(camera_entity, fpv_controller);
     scene.setActiveCamera(camera_entity);
 
     // Create cube entity
-    cube_entity = try scene.createEntity();
-    try scene.addComponent(cube_entity, TransformComponent.withPosition(Vec3.init(0, 0.5, 0)));
-    try scene.addComponent(cube_entity, MeshRendererComponent.init(&cube_mesh));
+    cube_entity = scene.createEntity();
+    scene.addComponent(cube_entity, TransformComponent.withPosition(Vec3.init(0, 0.5, 0)));
+    scene.addComponent(cube_entity, MeshRendererComponent.init(&cube_mesh));
 
     // Create ground plane
-    const ground_entity = try scene.createEntity();
+    const ground_entity = scene.createEntity();
     var ground_transform = TransformComponent.init();
     ground_transform.local.scale = Vec3.init(5, 1, 5);
-    try scene.addComponent(ground_entity, ground_transform);
-    try scene.addComponent(ground_entity, MeshRendererComponent.init(&plane_mesh));
+    scene.addComponent(ground_entity, ground_transform);
+    scene.addComponent(ground_entity, MeshRendererComponent.init(&plane_mesh));
 
     std.debug.print("\n=== ZDL UI Demo ===\n", .{});
     std.debug.print("Demonstrating the UI system.\n\n", .{});

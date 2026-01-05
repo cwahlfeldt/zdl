@@ -1,8 +1,7 @@
-// ECS module exports
+// ECS module exports (Flecs-based)
 
 // Core
 pub const Entity = @import("entity.zig").Entity;
-pub const EntityManager = @import("entity.zig").EntityManager;
 pub const Scene = @import("scene.zig").Scene;
 
 // Components
@@ -18,6 +17,3 @@ pub const FpvCameraController = components.FpvCameraController;
 // Systems
 pub const systems = @import("systems/systems.zig");
 pub const RenderSystem = systems.RenderSystem;
-
-// Generic storage (for advanced use)
-pub const ComponentStorage = @import("component_storage.zig").ComponentStorage;

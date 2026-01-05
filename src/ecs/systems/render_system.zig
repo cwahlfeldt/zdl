@@ -1,5 +1,6 @@
 const std = @import("std");
 const Scene = @import("../scene.zig").Scene;
+const Entity = @import("../entity.zig").Entity;
 const RenderFrame = @import("../../engine/engine.zig").RenderFrame;
 const Engine = @import("../../engine/engine.zig").Engine;
 const Uniforms = @import("../../gpu/uniforms.zig").Uniforms;
@@ -15,6 +16,21 @@ const TransformComponent = components.TransformComponent;
 const CameraComponent = components.CameraComponent;
 const MeshRendererComponent = components.MeshRendererComponent;
 const LightComponent = components.LightComponent;
+
+/// Context for rendering iteration
+const RenderContext = struct {
+    frame: *RenderFrame,
+    view: Mat4,
+    projection: Mat4,
+    has_pbr: bool,
+    current_pipeline_is_pbr: ?bool,
+};
+
+/// Context for light update iteration
+const LightContext = struct {
+    engine: *Engine,
+    camera_pos: Vec3,
+};
 
 /// Render system that draws all MeshRenderer components in the scene.
 pub const RenderSystem = struct {
@@ -59,67 +75,72 @@ pub const RenderSystem = struct {
             updateLightsFromScene(scene, frame.engine, cam_pos);
         }
 
-        // Track current pipeline state: null = none bound, false = legacy, true = pbr
-        var current_pipeline_is_pbr: ?bool = null;
-
         // Iterate all mesh renderers
-        const renderers = scene.getMeshRenderers();
+        var ctx = RenderContext{
+            .frame = frame,
+            .view = view,
+            .projection = projection,
+            .has_pbr = has_pbr,
+            .current_pipeline_is_pbr = null,
+        };
+        scene.iterateMeshRenderers(renderMesh, @ptrCast(&ctx));
+    }
 
-        for (renderers.items, renderers.entities) |*renderer, entity| {
-            if (!renderer.enabled) continue;
+    /// Callback for rendering a single mesh
+    fn renderMesh(entity: Entity, transform: *TransformComponent, renderer: *MeshRendererComponent, userdata: *anyopaque) void {
+        _ = entity;
+        const ctx: *RenderContext = @ptrCast(@alignCast(userdata));
 
-            // Get world transform
-            const transform = scene.getComponent(TransformComponent, entity) orelse continue;
+        if (!renderer.enabled) return;
 
-            // Decide which pipeline to use
-            const use_pbr = has_pbr and renderer.hasMaterial();
+        // Decide which pipeline to use
+        const use_pbr = ctx.has_pbr and renderer.hasMaterial();
 
-            if (use_pbr) {
-                // PBR rendering path
-                if (current_pipeline_is_pbr != true) {
-                    _ = frame.bindPBRPipeline();
-                    current_pipeline_is_pbr = true;
-                }
-
-                const material = renderer.material.?;
-
-                // Push MVP uniforms
-                const uniforms = Uniforms.init(transform.world_matrix, view, projection);
-                frame.pushUniforms(uniforms);
-
-                // Push material uniforms
-                const mat_uniforms = MaterialUniforms.fromMaterial(material);
-                frame.pushMaterialUniforms(mat_uniforms);
-
-                // Push light uniforms
-                frame.pushLightUniforms(frame.engine.light_uniforms);
-
-                // Bind textures
-                frame.bindPBRTextures(material);
-
-                // Draw mesh
-                frame.drawMesh(renderer.mesh.*);
-            } else {
-                // Legacy rendering path
-                if (current_pipeline_is_pbr != false) {
-                    frame.bindPipeline();
-                    current_pipeline_is_pbr = false;
-                }
-
-                // Bind texture
-                if (renderer.texture) |tex| {
-                    frame.bindTexture(tex.*);
-                } else {
-                    frame.bindDefaultTexture();
-                }
-
-                // Push uniforms with world matrix
-                const uniforms = Uniforms.init(transform.world_matrix, view, projection);
-                frame.pushUniforms(uniforms);
-
-                // Draw mesh
-                frame.drawMesh(renderer.mesh.*);
+        if (use_pbr) {
+            // PBR rendering path
+            if (ctx.current_pipeline_is_pbr != true) {
+                _ = ctx.frame.bindPBRPipeline();
+                ctx.current_pipeline_is_pbr = true;
             }
+
+            const material = renderer.material.?;
+
+            // Push MVP uniforms
+            const uniforms = Uniforms.init(transform.world_matrix, ctx.view, ctx.projection);
+            ctx.frame.pushUniforms(uniforms);
+
+            // Push material uniforms
+            const mat_uniforms = MaterialUniforms.fromMaterial(material);
+            ctx.frame.pushMaterialUniforms(mat_uniforms);
+
+            // Push light uniforms
+            ctx.frame.pushLightUniforms(ctx.frame.engine.light_uniforms);
+
+            // Bind textures
+            ctx.frame.bindPBRTextures(material);
+
+            // Draw mesh
+            ctx.frame.drawMesh(renderer.mesh.*);
+        } else {
+            // Legacy rendering path
+            if (ctx.current_pipeline_is_pbr != false) {
+                ctx.frame.bindPipeline();
+                ctx.current_pipeline_is_pbr = false;
+            }
+
+            // Bind texture
+            if (renderer.texture) |tex| {
+                ctx.frame.bindTexture(tex.*);
+            } else {
+                ctx.frame.bindDefaultTexture();
+            }
+
+            // Push uniforms with world matrix
+            const uniforms = Uniforms.init(transform.world_matrix, ctx.view, ctx.projection);
+            ctx.frame.pushUniforms(uniforms);
+
+            // Draw mesh
+            ctx.frame.drawMesh(renderer.mesh.*);
         }
     }
 
@@ -129,49 +150,52 @@ pub const RenderSystem = struct {
         engine.light_uniforms.clearDynamicLights();
         engine.light_uniforms.setCameraPosition(camera_pos);
 
-        // Get all lights from scene
-        const lights_data = scene.getLights();
-
         // Iterate all lights
-        for (lights_data.items, lights_data.entities) |light, entity| {
-            const transform = scene.getComponent(TransformComponent, entity) orelse continue;
+        var ctx = LightContext{
+            .engine = engine,
+            .camera_pos = camera_pos,
+        };
+        scene.iterateLights(processLight, @ptrCast(&ctx));
+    }
 
-            // Get light position from world matrix
-            const pos = Vec3.init(
-                transform.world_matrix.data[12],
-                transform.world_matrix.data[13],
-                transform.world_matrix.data[14],
-            );
+    /// Callback for processing a single light
+    fn processLight(entity: Entity, transform: *TransformComponent, light: *LightComponent, userdata: *anyopaque) void {
+        _ = entity;
+        const ctx: *LightContext = @ptrCast(@alignCast(userdata));
 
-            // Get light direction (forward vector, negated Z axis)
-            const dir = Vec3.init(
-                -transform.world_matrix.data[8],
-                -transform.world_matrix.data[9],
-                -transform.world_matrix.data[10],
-            );
+        // Get light position from world matrix
+        const light_pos = Vec3.init(
+            transform.world_matrix.data[12],
+            transform.world_matrix.data[13],
+            transform.world_matrix.data[14],
+        );
 
-            switch (light.light_type) {
-                .directional => {
-                    // 'dir' is entity's forward direction (where it "looks", -Z in OpenGL)
-                    // This is the direction light rays travel (toward surfaces), which is correct
-                    // The shader will negate to get L (direction from surface to light source)
-                    engine.light_uniforms.setDirectionalLight(dir, light.color, light.intensity);
-                },
-                .point => {
-                    _ = engine.light_uniforms.addPointLight(pos, light.range, light.color, light.intensity);
-                },
-                .spot => {
-                    _ = engine.light_uniforms.addSpotLight(
-                        pos,
-                        dir,
-                        light.range,
-                        light.color,
-                        light.intensity,
-                        light.inner_angle,
-                        light.outer_angle,
-                    );
-                },
-            }
+        // Get light direction (forward vector)
+        const light_dir = Vec3.init(
+            transform.world_matrix.data[8],
+            transform.world_matrix.data[9],
+            transform.world_matrix.data[10],
+        ).normalize();
+
+        // Add light based on type
+        switch (light.light_type) {
+            .directional => {
+                ctx.engine.light_uniforms.setDirectionalLight(light_dir, light.color, light.intensity);
+            },
+            .point => {
+                _ = ctx.engine.light_uniforms.addPointLight(light_pos, light.range, light.color, light.intensity);
+            },
+            .spot => {
+                _ = ctx.engine.light_uniforms.addSpotLight(
+                    light_pos,
+                    light_dir,
+                    light.range,
+                    light.color,
+                    light.intensity,
+                    light.inner_angle,
+                    light.outer_angle,
+                );
+            },
         }
     }
 };

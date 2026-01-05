@@ -10,6 +10,10 @@
             .url = "git+https://github.com/nDimensional/zig-quickjs#12c82426a92622eefcfd6bf03fd4de3721153220",
             .hash = "quickjs-0.1.0-pXITavQIAQCDX3Ib1k8O-q-0suHFMOEjzfyf96cyaJEt",
         },
+        .zflecs = .{
+            .url = "https://github.com/zig-gamedev/zflecs/archive/refs/heads/main.tar.gz",
+            .hash = "zflecs-0.2.0-dev-1PN3ym9mOgCyE8w0DdK_Uf7FAob-nm0Dp_lZKR3QyJaC",
+        },
     },
     .paths = .{""},
     .fingerprint = 0xe3b2b7444c02b8a9,

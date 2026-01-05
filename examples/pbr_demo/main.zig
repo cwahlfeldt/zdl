@@ -55,11 +55,11 @@ pub fn main() !void {
     try plane_mesh.upload(&eng.device);
 
     // Create camera entity
-    const camera_entity = try scene.createEntity();
+    const camera_entity = scene.createEntity();
     var camera_transform = TransformComponent.withPosition(Vec3.init(0, 4, 12));
     camera_transform.lookAt(Vec3.init(0, 0, 0), Vec3.init(0, 1, 0));
-    try scene.addComponent(camera_entity, camera_transform);
-    try scene.addComponent(camera_entity, CameraComponent.init());
+    scene.addComponent(camera_entity, camera_transform);
+    scene.addComponent(camera_entity, CameraComponent.init());
     scene.setActiveCamera(camera_entity);
 
     // Add FPV controller and initialize looking at origin
@@ -71,7 +71,7 @@ pub fn main() !void {
     // Set initial look direction toward origin
     const look_dir = Vec3.init(0, 0, 0).sub(Vec3.init(0, 2, 5)).normalize();
     fpv_controller.lookAt(look_dir);
-    try scene.addComponent(camera_entity, fpv_controller);
+    scene.addComponent(camera_entity, fpv_controller);
     scene.setActiveCamera(camera_entity);
 
     // Create a grid of spheres with varying materials
@@ -89,9 +89,9 @@ pub fn main() !void {
             const x = @as(f32, @floatFromInt(col)) * spacing - offset;
             const y = @as(f32, @floatFromInt(row)) * spacing - offset + 2.0;
 
-            const sphere_entity = try scene.createEntity();
+            const sphere_entity = scene.createEntity();
             const transform = TransformComponent.withPosition(Vec3.init(x, y, 0));
-            try scene.addComponent(sphere_entity, transform);
+            scene.addComponent(sphere_entity, transform);
 
             // Create PBR material with varying properties
             var material = Material.init();
@@ -99,83 +99,83 @@ pub fn main() !void {
             material.metallic = metallic;
             material.roughness = roughness;
 
-            try scene.addComponent(sphere_entity, MeshRendererComponent.withMaterial(&sphere_mesh, material));
+            scene.addComponent(sphere_entity, MeshRendererComponent.withMaterial(&sphere_mesh, material));
         }
     }
 
     // Add some colored spheres with different base colors
     {
         // Gold (metallic)
-        const gold_entity = try scene.createEntity();
-        try scene.addComponent(gold_entity, TransformComponent.withPosition(Vec3.init(-6, 2, 0)));
+        const gold_entity = scene.createEntity();
+        scene.addComponent(gold_entity, TransformComponent.withPosition(Vec3.init(-6, 2, 0)));
         const gold_mat = Material.metal(1.0, 0.766, 0.336, 0.3);
-        try scene.addComponent(gold_entity, MeshRendererComponent.withMaterial(&sphere_mesh, gold_mat));
+        scene.addComponent(gold_entity, MeshRendererComponent.withMaterial(&sphere_mesh, gold_mat));
     }
 
     {
         // Silver (metallic)
-        const silver_entity = try scene.createEntity();
-        try scene.addComponent(silver_entity, TransformComponent.withPosition(Vec3.init(-6, 5, 0)));
+        const silver_entity = scene.createEntity();
+        scene.addComponent(silver_entity, TransformComponent.withPosition(Vec3.init(-6, 5, 0)));
         const silver_mat = Material.metal(0.972, 0.960, 0.915, 0.2);
-        try scene.addComponent(silver_entity, MeshRendererComponent.withMaterial(&sphere_mesh, silver_mat));
+        scene.addComponent(silver_entity, MeshRendererComponent.withMaterial(&sphere_mesh, silver_mat));
     }
 
     {
         // Copper (metallic)
-        const copper_entity = try scene.createEntity();
-        try scene.addComponent(copper_entity, TransformComponent.withPosition(Vec3.init(-6, 8, 0)));
+        const copper_entity = scene.createEntity();
+        scene.addComponent(copper_entity, TransformComponent.withPosition(Vec3.init(-6, 8, 0)));
         const copper_mat = Material.metal(0.955, 0.637, 0.538, 0.4);
-        try scene.addComponent(copper_entity, MeshRendererComponent.withMaterial(&sphere_mesh, copper_mat));
+        scene.addComponent(copper_entity, MeshRendererComponent.withMaterial(&sphere_mesh, copper_mat));
     }
 
     {
         // Plastic (dielectric)
-        const plastic_entity = try scene.createEntity();
-        try scene.addComponent(plastic_entity, TransformComponent.withPosition(Vec3.init(6, 2, 0)));
+        const plastic_entity = scene.createEntity();
+        scene.addComponent(plastic_entity, TransformComponent.withPosition(Vec3.init(6, 2, 0)));
         const plastic_mat = Material.dielectric(0.2, 0.6, 0.9, 0.3);
-        try scene.addComponent(plastic_entity, MeshRendererComponent.withMaterial(&sphere_mesh, plastic_mat));
+        scene.addComponent(plastic_entity, MeshRendererComponent.withMaterial(&sphere_mesh, plastic_mat));
     }
 
     {
         // Emissive sphere
-        const emissive_entity = try scene.createEntity();
-        try scene.addComponent(emissive_entity, TransformComponent.withPosition(Vec3.init(6, 5, 0)));
+        const emissive_entity = scene.createEntity();
+        scene.addComponent(emissive_entity, TransformComponent.withPosition(Vec3.init(6, 5, 0)));
         const emissive_mat = Material.withEmissive(0.1, 0.1, 0.1, 2.0, 1.0, 0.5);
-        try scene.addComponent(emissive_entity, MeshRendererComponent.withMaterial(&sphere_mesh, emissive_mat));
+        scene.addComponent(emissive_entity, MeshRendererComponent.withMaterial(&sphere_mesh, emissive_mat));
     }
 
     // Create floor plane
-    const floor_entity = try scene.createEntity();
+    const floor_entity = scene.createEntity();
     var floor_transform = TransformComponent.withPosition(Vec3.init(0, -2, 0));
     floor_transform.setScale(Vec3.init(20, 1, 20));
-    try scene.addComponent(floor_entity, floor_transform);
+    scene.addComponent(floor_entity, floor_transform);
     const floor_mat = Material.dielectric(0.3, 0.3, 0.35, 0.8);
-    try scene.addComponent(floor_entity, MeshRendererComponent.withMaterial(&plane_mesh, floor_mat));
+    scene.addComponent(floor_entity, MeshRendererComponent.withMaterial(&plane_mesh, floor_mat));
 
     // Create directional light (sun) - pointing straight down for clear top lighting
-    const sun_entity = try scene.createEntity();
+    const sun_entity = scene.createEntity();
     var sun_transform = TransformComponent.init();
     // Point straight down (negative Y direction)
     sun_transform.setRotationEuler(-std.math.pi / 2.0, 0, 0);
-    try scene.addComponent(sun_entity, sun_transform);
+    scene.addComponent(sun_entity, sun_transform);
     // Strong white sunlight
-    try scene.addComponent(sun_entity, LightComponent.directional(Vec3.init(1.0, 1.0, 1.0), 5.0));
+    scene.addComponent(sun_entity, LightComponent.directional(Vec3.init(1.0, 1.0, 1.0), 5.0));
 
     // Create point lights - very bright and close for visible effect
-    point_light_entity = try scene.createEntity();
-    try scene.addComponent(point_light_entity, TransformComponent.withPosition(Vec3.init(0, 5, 8)));
+    point_light_entity = scene.createEntity();
+    scene.addComponent(point_light_entity, TransformComponent.withPosition(Vec3.init(0, 5, 8)));
     // Very bright white point light in front
-    try scene.addComponent(point_light_entity, LightComponent.point(Vec3.init(1.0, 1.0, 1.0), 30.0, 30.0));
+    scene.addComponent(point_light_entity, LightComponent.point(Vec3.init(1.0, 1.0, 1.0), 30.0, 30.0));
 
-    const point_light2 = try scene.createEntity();
-    try scene.addComponent(point_light2, TransformComponent.withPosition(Vec3.init(-6, 4, 6)));
+    const point_light2 = scene.createEntity();
+    scene.addComponent(point_light2, TransformComponent.withPosition(Vec3.init(-6, 4, 6)));
     // Bright blue point light
-    try scene.addComponent(point_light2, LightComponent.point(Vec3.init(0.3, 0.5, 1.0), 20.0, 25.0));
+    scene.addComponent(point_light2, LightComponent.point(Vec3.init(0.3, 0.5, 1.0), 20.0, 25.0));
 
-    const point_light3 = try scene.createEntity();
-    try scene.addComponent(point_light3, TransformComponent.withPosition(Vec3.init(6, 4, 6)));
+    const point_light3 = scene.createEntity();
+    scene.addComponent(point_light3, TransformComponent.withPosition(Vec3.init(6, 4, 6)));
     // Bright orange point light
-    try scene.addComponent(point_light3, LightComponent.point(Vec3.init(1.0, 0.5, 0.2), 20.0, 25.0));
+    scene.addComponent(point_light3, LightComponent.point(Vec3.init(1.0, 0.5, 0.2), 20.0, 25.0));
 
     std.debug.print("\nPBR Demo initialized!\n", .{});
     std.debug.print("Scene shows {d}x{d} sphere grid with varying metallic/roughness\n", .{ grid_size, grid_size });

@@ -143,35 +143,14 @@ pub const ScriptSystem = struct {
             scene.getActiveCamera(),
         );
 
-        // Get script components and entities
-        const scripts = scene.scripts.items();
-        const entities = scene.scripts.entities();
-
         // Sync transforms from Zig to JavaScript for all scripted entities
-        for (entities) |entity| {
-            if (scene.getComponent(TransformComponent, entity)) |transform| {
-                transform_api.syncTransform(self.context, entity, transform);
-            }
-        }
+        scene.iterateScripts(syncTransformCallback, &ctx);
 
         // Start any unstarted scripts
-        for (scripts, entities) |*script, entity| {
-            if (!script.started and script.enabled) {
-                if (!script.loaded) {
-                    script.load(self.context, entity, self.allocator) catch continue;
-                }
-                ctx.current_entity = entity;
-                script.callStart(self.context);
-            }
-        }
+        scene.iterateScripts(startScriptCallback, &ctx);
 
         // Update all scripts
-        for (scripts, entities) |*script, entity| {
-            if (script.enabled and script.started) {
-                ctx.current_entity = entity;
-                script.callUpdate(self.context, delta_time);
-            }
-        }
+        scene.iterateScripts(updateScriptCallback, &ctx);
 
         // Process transform updates from JavaScript
         transform_api.processUpdates(self.context, scene);
@@ -219,12 +198,9 @@ pub const ScriptSystem = struct {
     fn processSceneRequests(self: *Self, scene: *Scene) void {
         // Check for entity creation request
         if (scene_api.checkCreateEntityRequest(self.context)) {
-            if (scene.createEntity()) |entity| {
-                scene_api.registerEntity(self.context, entity);
-                std.debug.print("[ScriptSystem] Created entity from JS: {any}\n", .{entity});
-            } else |err| {
-                std.debug.print("[ScriptSystem] Failed to create entity: {any}\n", .{err});
-            }
+            const entity = scene.createEntity();
+            scene_api.registerEntity(self.context, entity);
+            std.debug.print("[ScriptSystem] Created entity from JS: {any}\n", .{entity});
         }
 
         // Process entity destruction requests
@@ -233,9 +209,7 @@ pub const ScriptSystem = struct {
 
         for (destroy_requests) |entity| {
             scene_api.unregisterEntity(self.context, entity);
-            scene.destroyEntity(entity) catch |err| {
-                std.debug.print("[ScriptSystem] Failed to destroy entity: {any}\n", .{err});
-            };
+            scene.destroyEntity(entity);
         }
 
         // Check for camera change request
@@ -246,28 +220,64 @@ pub const ScriptSystem = struct {
 
     /// Check for scripts that need hot reloading.
     fn checkHotReload(self: *Self, scene: *Scene) void {
-        const scripts = scene.scripts.items();
-        const entities = scene.scripts.entities();
-
-        for (scripts, entities) |*script, entity| {
-            if (script.needsReload()) {
-                std.debug.print("[ScriptSystem] Hot-reloading: {s}\n", .{script.script_path});
-                script.reload(self.context, entity, self.allocator) catch |err| {
-                    std.debug.print("[ScriptSystem] Hot-reload failed: {any}\n", .{err});
-                };
-            }
-        }
+        scene.iterateScripts(hotReloadCallback, self);
     }
 
     /// Call onDestroy for all scripts (when shutting down).
     pub fn shutdown(self: *Self, scene: *Scene) void {
-        const scripts = scene.scripts.items();
-
-        for (scripts) |*script| {
-            if (script.started) {
-                script.callDestroy(self.context);
-            }
-            script.cleanup(self.context);
-        }
+        scene.iterateScripts(shutdownScriptCallback, self);
     }
 };
+
+// ============================================================================
+// Iterator Callbacks
+// ============================================================================
+
+// Callback to sync transforms for scripted entities
+fn syncTransformCallback(entity: Entity, _: *ScriptComponent, userdata: *anyopaque) void {
+    const ctx: *bindings.BindingContext = @alignCast(@ptrCast(userdata));
+    if (ctx.scene.getComponent(TransformComponent, entity)) |transform| {
+        transform_api.syncTransform(ctx.js_ctx, entity, transform);
+    }
+}
+
+// Callback to start unstarted scripts
+fn startScriptCallback(entity: Entity, script: *ScriptComponent, userdata: *anyopaque) void {
+    const ctx: *bindings.BindingContext = @alignCast(@ptrCast(userdata));
+    if (!script.started and script.enabled) {
+        if (!script.loaded) {
+            script.load(ctx.js_ctx, entity, ctx.allocator) catch return;
+        }
+        ctx.current_entity = entity;
+        script.callStart(ctx.js_ctx);
+    }
+}
+
+// Callback to update scripts
+fn updateScriptCallback(entity: Entity, script: *ScriptComponent, userdata: *anyopaque) void {
+    const ctx: *bindings.BindingContext = @alignCast(@ptrCast(userdata));
+    if (script.enabled and script.started) {
+        ctx.current_entity = entity;
+        script.callUpdate(ctx.js_ctx, ctx.delta_time);
+    }
+}
+
+// Callback to check for hot reload
+fn hotReloadCallback(entity: Entity, script: *ScriptComponent, userdata: *anyopaque) void {
+    const self: *ScriptSystem = @alignCast(@ptrCast(userdata));
+    if (script.needsReload()) {
+        std.debug.print("[ScriptSystem] Hot-reloading: {s}\n", .{script.script_path});
+        script.reload(self.context, entity, self.allocator) catch |err| {
+            std.debug.print("[ScriptSystem] Hot-reload failed: {any}\n", .{err});
+        };
+    }
+}
+
+// Callback to shutdown scripts
+fn shutdownScriptCallback(_: Entity, script: *ScriptComponent, userdata: *anyopaque) void {
+    const self: *ScriptSystem = @alignCast(@ptrCast(userdata));
+    if (script.started) {
+        script.callDestroy(self.context);
+    }
+    script.cleanup(self.context);
+}

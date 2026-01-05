@@ -76,10 +76,10 @@ pub fn main() !void {
     try plane_mesh.upload(&eng.device);
 
     // Create camera entity with FPV controller
-    const camera_entity = try scene.createEntity();
+    const camera_entity = scene.createEntity();
     const camera_transform = TransformComponent.withPosition(Vec3.init(0, 3, 8));
-    try scene.addComponent(camera_entity, camera_transform);
-    try scene.addComponent(camera_entity, CameraComponent.init());
+    scene.addComponent(camera_entity, camera_transform);
+    scene.addComponent(camera_entity, CameraComponent.init());
 
     // Add FPV controller and initialize looking at origin
     var fpv_controller = FpvCameraController.initWithConfig(.{
@@ -90,21 +90,21 @@ pub fn main() !void {
     // Set initial look direction toward origin
     const look_dir = Vec3.init(0, 0, 0).sub(Vec3.init(0, 0.5, 8)).normalize();
     fpv_controller.lookAt(look_dir);
-    try scene.addComponent(camera_entity, fpv_controller);
+    scene.addComponent(camera_entity, fpv_controller);
     scene.setActiveCamera(camera_entity);
 
     // Create cube entity
-    cube_entity = try scene.createEntity();
+    cube_entity = scene.createEntity();
     const cube_transform = TransformComponent.withPosition(Vec3.init(0, 0.5, 0));
-    try scene.addComponent(cube_entity, cube_transform);
-    try scene.addComponent(cube_entity, MeshRendererComponent.init(&cube_mesh));
+    scene.addComponent(cube_entity, cube_transform);
+    scene.addComponent(cube_entity, MeshRendererComponent.init(&cube_mesh));
 
     // Create plane entity
-    const plane_entity = try scene.createEntity();
+    const plane_entity = scene.createEntity();
     var plane_transform = TransformComponent.withPosition(Vec3.init(0, -0.5, 0));
     plane_transform.setScale(Vec3.init(10, 1, 10));
-    try scene.addComponent(plane_entity, plane_transform);
-    try scene.addComponent(plane_entity, MeshRendererComponent.init(&plane_mesh));
+    scene.addComponent(plane_entity, plane_transform);
+    scene.addComponent(plane_entity, MeshRendererComponent.init(&plane_mesh));
 
     std.debug.print("\n=== ZDL Debug Demo ===\n", .{});
     std.debug.print("Demonstrating debug and profiling tools.\n\n", .{});

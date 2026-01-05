@@ -133,7 +133,6 @@ fn update(eng: *Engine, scene: *Scene, input: *Input, delta_time: f32) !void {
         );
         if (scene.getComponent(TransformComponent, indicator_entity)) |transform| {
             transform.local.position = player_position.add(indicator_pos);
-            transform.markDirty();
         }
     }
 
@@ -185,28 +184,28 @@ pub fn main() !void {
     try plane_mesh.upload(&eng.device);
 
     // Create camera
-    const camera = try scene.createEntity();
-    try scene.addComponent(camera, CameraComponent.init());
-    try scene.addComponent(camera, TransformComponent.withPosition(Vec3.init(0, 10, 12)));
+    const camera = scene.createEntity();
+    scene.addComponent(camera, CameraComponent.init());
+    scene.addComponent(camera, TransformComponent.withPosition(Vec3.init(0, 10, 12)));
     if (scene.getComponent(TransformComponent, camera)) |transform| {
         transform.setRotation(Quat.fromAxisAngle(Vec3.init(1, 0, 0), -0.6));
     }
     scene.setActiveCamera(camera);
 
     // Create ground plane
-    const ground = try scene.createEntity();
-    try scene.addComponent(ground, TransformComponent.withPosition(Vec3.init(0, 0, 0)));
-    try scene.addComponent(ground, MeshRendererComponent.init(&plane_mesh));
+    const ground = scene.createEntity();
+    scene.addComponent(ground, TransformComponent.withPosition(Vec3.init(0, 0, 0)));
+    scene.addComponent(ground, MeshRendererComponent.init(&plane_mesh));
 
     // Create player (cube)
-    player_entity = try scene.createEntity();
-    try scene.addComponent(player_entity, TransformComponent.withPosition(player_position));
-    try scene.addComponent(player_entity, MeshRendererComponent.init(&cube_mesh));
+    player_entity = scene.createEntity();
+    scene.addComponent(player_entity, TransformComponent.withPosition(player_position));
+    scene.addComponent(player_entity, MeshRendererComponent.init(&cube_mesh));
 
     // Create stick position indicator (small sphere)
-    indicator_entity = try scene.createEntity();
-    try scene.addComponent(indicator_entity, TransformComponent.withPosition(Vec3.init(0, 0.2, 0)));
-    try scene.addComponent(indicator_entity, MeshRendererComponent.init(&sphere_mesh));
+    indicator_entity = scene.createEntity();
+    scene.addComponent(indicator_entity, TransformComponent.withPosition(Vec3.init(0, 0.2, 0)));
+    scene.addComponent(indicator_entity, MeshRendererComponent.init(&sphere_mesh));
 
     // Print instructions
     std.debug.print(

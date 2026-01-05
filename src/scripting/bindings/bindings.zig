@@ -136,8 +136,7 @@ pub fn jsToQuat(ctx: *JSContext, value: quickjs.Value) !Quat {
 /// Create a JavaScript object from a Zig Entity.
 pub fn entityToJS(ctx: *JSContext, entity: Entity) quickjs.Value {
     const obj = ctx.newObject();
-    ctx.setProperty(obj, "index", ctx.newInt32(@intCast(entity.index))) catch {};
-    ctx.setProperty(obj, "generation", ctx.newInt32(@intCast(entity.generation))) catch {};
+    ctx.setProperty(obj, "id", ctx.newFloat(@floatFromInt(entity.id))) catch {};
     ctx.setProperty(obj, "valid", ctx.newBool(entity.isValid())) catch {};
     return obj;
 }
@@ -146,18 +145,13 @@ pub fn entityToJS(ctx: *JSContext, entity: Entity) quickjs.Value {
 pub fn jsToEntity(ctx: *JSContext, value: quickjs.Value) !Entity {
     if (!ctx.isObject(value)) return error.TypeMismatch;
 
-    const index_val = ctx.getProperty(value, "index");
-    const gen_val = ctx.getProperty(value, "generation");
-    defer ctx.freeValue(index_val);
-    defer ctx.freeValue(gen_val);
+    const id_val = ctx.getProperty(value, "id");
+    defer ctx.freeValue(id_val);
 
-    const index = ctx.toInt32(index_val) catch return error.InvalidEntity;
-    const gen = ctx.toInt32(gen_val) catch return error.InvalidEntity;
+    const id_float = ctx.toFloat64(id_val) catch return error.InvalidEntity;
+    const id: u64 = @intFromFloat(id_float);
 
-    return Entity{
-        .index = @intCast(index),
-        .generation = @intCast(gen),
-    };
+    return Entity{ .id = id };
 }
 
 // ============================================================================

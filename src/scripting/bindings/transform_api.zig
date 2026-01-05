@@ -151,10 +151,10 @@ pub fn register(ctx: *JSContext) !void {
 pub fn syncTransform(ctx: *JSContext, entity: Entity, transform: *const TransformComponent) void {
     // Get or create the transform wrapper
     var key_buf: [64]u8 = undefined;
-    const key = std.fmt.bufPrintZ(&key_buf, "__transform_cache['{d}_{d}']", .{ entity.index, entity.generation }) catch return;
+    const key = std.fmt.bufPrintZ(&key_buf, "__transform_cache['{d}']", .{entity.id}) catch return;
 
     var code_buf: [128]u8 = undefined;
-    const get_code = std.fmt.bufPrintZ(&code_buf, "__getTransform({d}, {d})", .{ entity.index, entity.generation }) catch return;
+    const get_code = std.fmt.bufPrintZ(&code_buf, "__getTransform({d})", .{entity.id}) catch return;
 
     const transform_js = ctx.eval(get_code, "<transform>") catch return;
     defer ctx.freeValue(transform_js);
@@ -194,21 +194,18 @@ pub fn processUpdates(ctx: *JSContext, scene: *Scene) void {
         if (ctx.isUndefined(update)) break;
 
         // Extract update data
-        const entity_index = ctx.getProperty(update, "entityIndex");
-        const entity_gen = ctx.getProperty(update, "entityGen");
+        const entity_id_val = ctx.getProperty(update, "entityId");
         const update_type = ctx.getProperty(update, "type");
         const value = ctx.getProperty(update, "value");
-        defer ctx.freeValue(entity_index);
-        defer ctx.freeValue(entity_gen);
+        defer ctx.freeValue(entity_id_val);
         defer ctx.freeValue(update_type);
         defer ctx.freeValue(value);
 
-        const index = ctx.toInt32(entity_index) catch continue;
-        const gen = ctx.toInt32(entity_gen) catch continue;
+        const id_float = ctx.toFloat64(entity_id_val) catch continue;
+        const id: u64 = @intFromFloat(id_float);
 
         const entity = Entity{
-            .index = @intCast(index),
-            .generation = @intCast(gen),
+            .id = id,
         };
 
         // Get the transform component

@@ -81,10 +81,10 @@ pub fn main() !void {
     try cube_mesh.upload(&eng.device);
 
     // Create camera entity with FPV controller
-    const camera_entity = try scene.createEntity();
+    const camera_entity = scene.createEntity();
     const camera_transform = TransformComponent.withPosition(Vec3.init(5, 3, 5));
-    try scene.addComponent(camera_entity, camera_transform);
-    try scene.addComponent(camera_entity, CameraComponent.init());
+    scene.addComponent(camera_entity, camera_transform);
+    scene.addComponent(camera_entity, CameraComponent.init());
 
     var fpv_controller = FpvCameraController.initWithConfig(.{
         .sensitivity = 0.003,
@@ -93,7 +93,7 @@ pub fn main() !void {
     });
     const look_dir = Vec3.init(0, 1, 0).sub(Vec3.init(5, 3, 5)).normalize();
     fpv_controller.lookAt(look_dir);
-    try scene.addComponent(camera_entity, fpv_controller);
+    scene.addComponent(camera_entity, fpv_controller);
     scene.setActiveCamera(camera_entity);
 
     // Create skeleton and animation
@@ -130,11 +130,11 @@ pub fn main() !void {
 
     // Create bone visualization entities
     for (0..3) |i| {
-        bone_entities[i] = try scene.createEntity();
+        bone_entities[i] = scene.createEntity();
         var transform = TransformComponent.init();
         transform.setScale(Vec3.init(0.2, 0.2, 0.2));
-        try scene.addComponent(bone_entities[i], transform);
-        try scene.addComponent(bone_entities[i], MeshRendererComponent.init(&cube_mesh));
+        scene.addComponent(bone_entities[i], transform);
+        scene.addComponent(bone_entities[i], MeshRendererComponent.init(&cube_mesh));
     }
 
     std.debug.print("\n=== ZDL Animation Demo ===\n", .{});

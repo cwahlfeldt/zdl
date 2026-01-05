@@ -84,7 +84,7 @@ pub fn registerEntity(ctx: *JSContext, entity: Entity) void {
     defer ctx.freeValue(entities);
 
     var key_buf: [64]u8 = undefined;
-    const key = std.fmt.bufPrintZ(&key_buf, "{d}_{d}", .{ entity.index, entity.generation }) catch return;
+    const key = std.fmt.bufPrintZ(&key_buf, "{d}", .{entity.id}) catch return;
 
     ctx.setProperty(entities, key, ctx.newBool(true)) catch {};
 }
@@ -95,7 +95,7 @@ pub fn unregisterEntity(ctx: *JSContext, entity: Entity) void {
     defer ctx.freeValue(entities);
 
     var key_buf: [64]u8 = undefined;
-    const key = std.fmt.bufPrintZ(&key_buf, "{d}_{d}", .{ entity.index, entity.generation }) catch return;
+    const key = std.fmt.bufPrintZ(&key_buf, "{d}", .{entity.id}) catch return;
 
     ctx.setProperty(entities, key, ctx.newBool(false)) catch {};
 }

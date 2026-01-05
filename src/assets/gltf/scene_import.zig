@@ -91,7 +91,7 @@ fn importNode(
     }
 
     const node = asset.nodes[node_index];
-    const entity = try ecs_scene.createEntity();
+    const entity = ecs_scene.createEntity();
 
     // Add TransformComponent
     var transform = TransformComponent.init();
@@ -99,7 +99,7 @@ fn importNode(
     transform.local.position = node_transform.position;
     transform.local.rotation = node_transform.rotation;
     transform.local.scale = node_transform.scale;
-    try ecs_scene.addComponent(entity, transform);
+    ecs_scene.addComponent(entity, transform);
 
     // Set parent if provided
     if (parent) |p| {
@@ -117,8 +117,8 @@ fn importNode(
             } else {
                 // Multiple primitives - create child entities for each
                 for (mesh_data.primitives, 0..) |_, prim_idx| {
-                    const child = try ecs_scene.createEntity();
-                    try ecs_scene.addComponent(child, TransformComponent.init());
+                    const child = ecs_scene.createEntity();
+                    ecs_scene.addComponent(child, TransformComponent.init());
                     ecs_scene.setParent(child, entity);
                     try addMeshRenderer(asset, ecs_scene, child, mesh_idx, prim_idx);
                 }
@@ -136,7 +136,7 @@ fn importNode(
                     cam_data.znear,
                     cam_data.zfar orelse 1000.0,
                 );
-                try ecs_scene.addComponent(entity, cam);
+                ecs_scene.addComponent(entity, cam);
             }
         }
     }
@@ -172,7 +172,7 @@ fn addMeshRenderer(
         }
     }
 
-    try ecs_scene.addComponent(entity, renderer);
+    ecs_scene.addComponent(entity, renderer);
 }
 
 /// Get the default scene index (or 0 if none specified)
