@@ -44,8 +44,8 @@ pub fn main() !void {
     defer allocator.free(hdr_path);
     if (eng.loadHDREnvironment(hdr_path)) |_| {} else |_| {}
 
-    eng.light_uniforms.setIBLSpecularIntensity(0.28);
-    eng.light_uniforms.setIBLParams(1.15, eng.light_uniforms.ibl_params[1]);
+    eng.light_uniforms.setIBLSpecularIntensity(0.35);
+    eng.light_uniforms.setIBLParams(1.0, eng.light_uniforms.ibl_params[1]);
 
     var scene = Scene.init(allocator);
     defer scene.deinit();

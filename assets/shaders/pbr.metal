@@ -342,8 +342,7 @@ fragment float4 pbr_fragment_main(
         float3 diffuse = kD * irradiance * albedo;
 
         // Specular IBL
-        // Use linear roughness here to bias toward blur since our prefilter is a simple downsample.
-        float lod = roughness * lights.ibl_params.y; // max_reflection_lod
+        float lod = roughness * roughness * lights.ibl_params.y; // max_reflection_lod
         float3 prefiltered = prefiltered_env.sample(samp, R, level(lod)).rgb;
         float2 brdf = brdf_lut.sample(samp, float2(NdotV, roughness)).rg;
         float3 specular = prefiltered * (F * brdf.x + brdf.y) * lights.ibl_params.w;

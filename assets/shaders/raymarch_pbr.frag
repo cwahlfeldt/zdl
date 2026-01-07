@@ -598,7 +598,7 @@ void main() {
         vec3 irradiance = texture(u_irradiance_map, N).rgb;
         vec3 diffuse = kD * irradiance * albedo;
 
-        float lod = roughness * lights.ibl_params.y;
+        float lod = roughness * roughness * lights.ibl_params.y;
         vec3 prefiltered = textureLod(u_prefiltered_env, R, lod).rgb;
         vec2 brdf = texture(u_brdf_lut, vec2(NdotV, roughness)).rg;
         vec3 specular = prefiltered * (F * brdf.x + brdf.y) * lights.ibl_params.w;

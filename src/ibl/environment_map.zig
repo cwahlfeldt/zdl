@@ -17,19 +17,19 @@ pub const EnvironmentMap = struct {
         path: []const u8,
     ) !EnvironmentMap {
         const loadHDR = @import("hdr_loader.zig").loadHDR;
-        const equirectToCubemap = @import("equirect_to_cubemap.zig").equirectToCubemap;
+        const generatePrefilteredFromHDR = @import("equirect_to_cubemap.zig").generatePrefilteredFromHDR;
+        const generateIrradianceFromHDR = @import("equirect_to_cubemap.zig").generateIrradianceFromHDR;
 
         // 1. Load HDR file (Radiance .hdr format)
         var hdr_image = try loadHDR(allocator, path);
         defer hdr_image.deinit();
 
-        // 2. Convert equirectangular to cubemap (256x256 with mip levels for roughness)
-        const prefilter_mips: u32 = 5; // 256, 128, 64, 32, 16
-        const env_cubemap = try equirectToCubemap(allocator, device, &hdr_image, 256, prefilter_mips);
+        // 2. Generate prefiltered cubemap (GGX importance sampling)
+        const prefilter_mips: u32 = 5; // 128, 64, 32, 16, 8
+        const env_cubemap = try generatePrefilteredFromHDR(allocator, device, &hdr_image, 128, prefilter_mips);
 
-        // 3. Generate irradiance map (32x32, diffuse convolution)
-        // For now, use a downsampled version of the environment
-        const irradiance_cubemap = try equirectToCubemap(allocator, device, &hdr_image, 32, 1);
+        // 3. Generate irradiance map (diffuse convolution)
+        const irradiance_cubemap = try generateIrradianceFromHDR(allocator, device, &hdr_image, 32);
 
         // 4. Calculate max mip level for pre-filtered map
         const max_mip = @as(f32, @floatFromInt(prefilter_mips - 1));

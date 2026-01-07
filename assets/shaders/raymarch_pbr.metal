@@ -641,7 +641,7 @@ fragment float4 raymarch_fragment_main(
         float3 irradiance = irradiance_map.sample(samp, N).rgb;
         float3 diffuse = kD * irradiance * albedo;
 
-        float lod = roughness * lights.ibl_params.y;
+        float lod = roughness * roughness * lights.ibl_params.y;
         float3 prefiltered = prefiltered_env.sample(samp, R, level(lod)).rgb;
         float2 brdf = brdf_lut.sample(samp, float2(NdotV, roughness)).rg;
         float3 specular = prefiltered * (F * brdf.x + brdf.y) * lights.ibl_params.w;

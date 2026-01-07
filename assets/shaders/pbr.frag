@@ -304,8 +304,7 @@ void main() {
         vec3 diffuse = kD * irradiance * albedo;
 
         // Specular IBL
-        // Use linear roughness here to bias toward blur since our prefilter is a simple downsample.
-        float lod = roughness * lights.ibl_params.y; // max_reflection_lod
+        float lod = roughness * roughness * lights.ibl_params.y; // max_reflection_lod
         vec3 prefiltered = textureLod(u_prefiltered_env, R, lod).rgb;
         vec2 brdf = texture(u_brdf_lut, vec2(NdotV, roughness)).rg;
         vec3 specular = prefiltered * (F * brdf.x + brdf.y) * lights.ibl_params.w;
