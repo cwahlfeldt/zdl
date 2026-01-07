@@ -56,7 +56,7 @@ layout (set = 3, binding = 1, std140) uniform LightUBO {
     vec4 directional_color_intensity;   // rgb=color, a=intensity
     vec4 ambient_color_intensity;       // rgb=color, a=intensity
     vec4 camera_position;               // xyz=position
-    vec4 ibl_params;                    // x=env_intensity, y=max_lod, z=use_ibl, w=pad
+    vec4 ibl_params;                    // x=env_intensity, y=max_lod, z=use_ibl, w=spec_intensity
     uint point_light_count;
     uint spot_light_count;
     uint _pad[2];
@@ -304,10 +304,11 @@ void main() {
         vec3 diffuse = kD * irradiance * albedo;
 
         // Specular IBL
+        // Use linear roughness here to bias toward blur since our prefilter is a simple downsample.
         float lod = roughness * lights.ibl_params.y; // max_reflection_lod
         vec3 prefiltered = textureLod(u_prefiltered_env, R, lod).rgb;
         vec2 brdf = texture(u_brdf_lut, vec2(NdotV, roughness)).rg;
-        vec3 specular = prefiltered * (F * brdf.x + brdf.y);
+        vec3 specular = prefiltered * (F * brdf.x + brdf.y) * lights.ibl_params.w;
 
         ambient = (diffuse + specular) * ao * lights.ibl_params.x; // env_intensity
     } else {

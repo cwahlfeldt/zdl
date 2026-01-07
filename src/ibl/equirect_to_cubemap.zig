@@ -30,21 +30,29 @@ pub fn equirectToCubemap(
         .negative_z,
     };
 
-    for (0..levels) |mip| {
-        const mip_u32: u32 = @intCast(mip);
-        const shift: u5 = @intCast(mip_u32);
-        const mip_size = @max(@as(u32, 1), cubemap_size >> shift);
+    for (faces) |face| {
+        var prev_size = cubemap_size;
+        var prev_data = try allocator.alloc(u8, prev_size * prev_size * 8);
 
-        // Allocate face data buffer for this mip (RGBA16F = 8 bytes per pixel)
-        const face_byte_size = mip_size * mip_size * 8;
-        const face_data = try allocator.alloc(u8, face_byte_size);
-        defer allocator.free(face_data);
+        try renderCubeFace(hdr, face, prev_size, prev_data);
+        var mutable_cubemap = cubemap;
+        try mutable_cubemap.uploadFace(device, face, 0, prev_data);
 
-        for (faces) |face| {
-            try renderCubeFace(hdr, face, mip_size, face_data);
-            var mutable_cubemap = cubemap;
-            try mutable_cubemap.uploadFace(device, face, mip_u32, face_data);
+        var mip: u32 = 1;
+        while (mip < levels) : (mip += 1) {
+            const shift: u5 = @intCast(mip);
+            const mip_size = @max(@as(u32, 1), cubemap_size >> shift);
+            const mip_data = try allocator.alloc(u8, mip_size * mip_size * 8);
+
+            downsampleFaceF16(prev_data, prev_size, mip_data, mip_size);
+            try mutable_cubemap.uploadFace(device, face, mip, mip_data);
+
+            allocator.free(prev_data);
+            prev_data = mip_data;
+            prev_size = mip_size;
         }
+
+        allocator.free(prev_data);
     }
 
     return cubemap;
@@ -79,6 +87,41 @@ fn renderCubeFace(
             pixels_f16[pixel_idx + 1] = @as(f16, @floatCast(color[1]));
             pixels_f16[pixel_idx + 2] = @as(f16, @floatCast(color[2]));
             pixels_f16[pixel_idx + 3] = @as(f16, @floatCast(1.0));
+        }
+    }
+}
+
+fn downsampleFaceF16(prev_data: []const u8, prev_size: u32, out_data: []u8, out_size: u32) void {
+    const prev_pixels = std.mem.bytesAsSlice(f16, prev_data);
+    const out_pixels = std.mem.bytesAsSlice(f16, out_data);
+
+    var y: u32 = 0;
+    while (y < out_size) : (y += 1) {
+        var x: u32 = 0;
+        while (x < out_size) : (x += 1) {
+            const src_x = x * 2;
+            const src_y = y * 2;
+
+            var accum: [4]f32 = .{ 0, 0, 0, 0 };
+            var dy: u32 = 0;
+            while (dy < 2) : (dy += 1) {
+                var dx: u32 = 0;
+                while (dx < 2) : (dx += 1) {
+                    const px = src_x + dx;
+                    const py = src_y + dy;
+                    const idx = (py * prev_size + px) * 4;
+                    accum[0] += @as(f32, @floatCast(prev_pixels[idx + 0]));
+                    accum[1] += @as(f32, @floatCast(prev_pixels[idx + 1]));
+                    accum[2] += @as(f32, @floatCast(prev_pixels[idx + 2]));
+                    accum[3] += @as(f32, @floatCast(prev_pixels[idx + 3]));
+                }
+            }
+
+            const out_idx = (y * out_size + x) * 4;
+            out_pixels[out_idx + 0] = @as(f16, @floatCast(accum[0] * 0.25));
+            out_pixels[out_idx + 1] = @as(f16, @floatCast(accum[1] * 0.25));
+            out_pixels[out_idx + 2] = @as(f16, @floatCast(accum[2] * 0.25));
+            out_pixels[out_idx + 3] = @as(f16, @floatCast(accum[3] * 0.25));
         }
     }
 }

@@ -496,6 +496,7 @@ pub const Engine = struct {
         // Update light uniforms with IBL parameters
         self.light_uniforms.setIBLEnabled(true);
         self.light_uniforms.setIBLParams(1.0, default_env.max_mip_level);
+        self.light_uniforms.setIBLSpecularIntensity(0.2);
 
         try self.initSkybox();
     }
@@ -529,6 +530,9 @@ pub const Engine = struct {
         // Set as current environment
         self.current_environment = env;
         self.light_uniforms.setIBLParams(1.0, env.max_mip_level);
+        if (self.light_uniforms.ibl_params[3] == 0.0) {
+            self.light_uniforms.setIBLSpecularIntensity(0.2);
+        }
 
         return env;
     }

@@ -84,7 +84,7 @@ pub const LightUniforms = extern struct {
     camera_position: [4]f32,
 
     // IBL parameters - 16 bytes
-    /// Environment map intensity multiplier (x), max reflection LOD (y), use IBL flag (z), padding (w)
+    /// Environment map intensity (x), max reflection LOD (y), use IBL flag (z), specular intensity (w)
     ibl_params: [4]f32,
 
     // Light counts - 16 bytes
@@ -107,7 +107,7 @@ pub const LightUniforms = extern struct {
             .directional_color_intensity = .{ 1.0, 1.0, 1.0, 1.0 },
             .ambient_color_intensity = .{ 0.1, 0.1, 0.15, 1.0 },
             .camera_position = .{ 0, 0, 5, 0 },
-            .ibl_params = .{ 1.0, 4.0, 0.0, 0.0 }, // intensity=1.0, max_lod=4.0, use_ibl=0, pad=0
+            .ibl_params = .{ 1.0, 4.0, 0.0, 0.2 }, // intensity=1.0, max_lod=4.0, use_ibl=0, spec=0.2
             .point_light_count = 0,
             .spot_light_count = 0,
             .point_lights = undefined,
@@ -169,6 +169,11 @@ pub const LightUniforms = extern struct {
     pub fn setIBLParams(self: *LightUniforms, intensity: f32, max_lod: f32) void {
         self.ibl_params[0] = intensity;
         self.ibl_params[1] = max_lod;
+    }
+
+    /// Set IBL specular intensity (applies to specular term only).
+    pub fn setIBLSpecularIntensity(self: *LightUniforms, intensity: f32) void {
+        self.ibl_params[3] = intensity;
     }
 };
 
