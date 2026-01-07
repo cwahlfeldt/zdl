@@ -527,6 +527,15 @@ pub const Engine = struct {
 
         env.* = try EnvironmentMap.loadFromHDR(self.allocator, &mutable_device, path);
 
+        // Free previous non-default environment if present.
+        if (self.current_environment) |old_env| {
+            if (self.default_environment == null or old_env != self.default_environment.?) {
+                var mutable_env = old_env;
+                mutable_env.deinit(&mutable_device);
+                self.allocator.destroy(old_env);
+            }
+        }
+
         // Set as current environment
         self.current_environment = env;
         self.light_uniforms.setIBLParams(1.0, env.max_mip_level);
@@ -566,6 +575,13 @@ pub const Engine = struct {
             var mutable_lut = lut;
             mutable_lut.deinit(&mutable_device);
             self.allocator.destroy(lut);
+        }
+        if (self.current_environment) |env| {
+            if (self.default_environment == null or env != self.default_environment.?) {
+                var mutable_env = env;
+                mutable_env.deinit(&mutable_device);
+                self.allocator.destroy(env);
+            }
         }
         if (self.default_environment) |env| {
             var mutable_env = env;
