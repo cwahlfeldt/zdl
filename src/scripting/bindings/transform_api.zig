@@ -13,9 +13,8 @@ const Quat = @import("../../math/quat.zig").Quat;
 pub fn register(ctx: *JSContext) !void {
     const transform_code =
         \\// Transform wrapper that syncs with Zig side
-        \\function Transform(entityIndex, entityGen) {
-        \\    this._entityIndex = entityIndex;
-        \\    this._entityGen = entityGen;
+        \\function Transform(entityId) {
+        \\    this._entityId = entityId;
         \\    // Use plain objects initially to avoid constructor issues
         \\    this._position = {x: 0, y: 0, z: 0};
         \\    this._rotation = {x: 0, y: 0, z: 0, w: 1};
@@ -26,45 +25,68 @@ pub fn register(ctx: *JSContext) !void {
         \\    this._dirty = false;
         \\}
         \\
+        \\function __vec3Add(a, b) {
+        \\    return { x: a.x + b.x, y: a.y + b.y, z: a.z + b.z };
+        \\}
+        \\
+        \\function __vec3MulScalar(v, s) {
+        \\    return { x: v.x * s, y: v.y * s, z: v.z * s };
+        \\}
+        \\
+        \\function __quatMul(a, b) {
+        \\    return {
+        \\        x: a.w * b.x + a.x * b.w + a.y * b.z - a.z * b.y,
+        \\        y: a.w * b.y - a.x * b.z + a.y * b.w + a.z * b.x,
+        \\        z: a.w * b.z + a.x * b.y - a.y * b.x + a.z * b.w,
+        \\        w: a.w * b.w - a.x * b.x - a.y * b.y - a.z * b.z
+        \\    };
+        \\}
+        \\
+        \\function __quatNormalize(q) {
+        \\    var len = Math.sqrt(q.x * q.x + q.y * q.y + q.z * q.z + q.w * q.w);
+        \\    if (len === 0) return { x: 0, y: 0, z: 0, w: 1 };
+        \\    return { x: q.x / len, y: q.y / len, z: q.z / len, w: q.w / len };
+        \\}
+        \\
         \\Transform.prototype = {
         \\    // Position
-        \\    get position() { return this._position; },
+        \\    get position() { return new Vec3(this._position.x, this._position.y, this._position.z); },
         \\    set position(v) {
-        \\        this._position = v;
+        \\        this._position = {x: v.x, y: v.y, z: v.z};
         \\        this._dirty = true;
-        \\        this._queueUpdate('position', v);
+        \\        this._queueUpdate('position', this._position);
         \\    },
         \\
         \\    // Rotation (quaternion)
-        \\    get rotation() { return this._rotation; },
+        \\    get rotation() { return new Quat(this._rotation.x, this._rotation.y, this._rotation.z, this._rotation.w); },
         \\    set rotation(q) {
-        \\        this._rotation = q;
+        \\        this._rotation = {x: q.x, y: q.y, z: q.z, w: q.w};
         \\        this._dirty = true;
-        \\        this._queueUpdate('rotation', q);
+        \\        this._queueUpdate('rotation', this._rotation);
         \\    },
         \\
         \\    // Scale
-        \\    get scale() { return this._scale; },
+        \\    get scale() { return new Vec3(this._scale.x, this._scale.y, this._scale.z); },
         \\    set scale(v) {
-        \\        this._scale = v;
+        \\        this._scale = {x: v.x, y: v.y, z: v.z};
         \\        this._dirty = true;
-        \\        this._queueUpdate('scale', v);
+        \\        this._queueUpdate('scale', this._scale);
         \\    },
         \\
         \\    // Direction vectors (read-only, computed from rotation)
-        \\    forward: function() { return this._forward; },
-        \\    right: function() { return this._right; },
-        \\    up: function() { return this._up; },
+        \\    forward: function() { return new Vec3(this._forward.x, this._forward.y, this._forward.z); },
+        \\    right: function() { return new Vec3(this._right.x, this._right.y, this._right.z); },
+        \\    up: function() { return new Vec3(this._up.x, this._up.y, this._up.z); },
         \\
         \\    // Operations
         \\    translate: function(delta) {
-        \\        this._position = this._position.add(delta);
+        \\        this._position = __vec3Add(this._position, delta);
         \\        this._dirty = true;
         \\        this._queueUpdate('position', this._position);
         \\    },
         \\
         \\    rotate: function(quat) {
-        \\        this._rotation = this._rotation.mul(quat).normalize();
+        \\        this._rotation = __quatNormalize(__quatMul(this._rotation, quat));
         \\        this._dirty = true;
         \\        this._queueUpdate('rotation', this._rotation);
         \\    },
@@ -80,13 +102,12 @@ pub fn register(ctx: *JSContext) !void {
         \\    },
         \\
         \\    setRotationEuler: function(pitch, yaw, roll) {
-        \\        this._rotation = Quat.fromEuler(pitch, yaw, roll);
+        \\        this._queueUpdate('setRotationEuler', { pitch: pitch, yaw: yaw, roll: roll });
         \\        this._dirty = true;
-        \\        this._queueUpdate('rotation', this._rotation);
         \\    },
         \\
         \\    scaleUniform: function(factor) {
-        \\        this._scale = this._scale.mul(factor);
+        \\        this._scale = __vec3MulScalar(this._scale, factor);
         \\        this._dirty = true;
         \\        this._queueUpdate('scale', this._scale);
         \\    },
@@ -101,8 +122,7 @@ pub fn register(ctx: *JSContext) !void {
         \\    _queueUpdate: function(type, value) {
         \\        try {
         \\            __transform_updates.push({
-        \\                entityIndex: this._entityIndex,
-        \\                entityGen: this._entityGen,
+        \\                entityId: this._entityId,
         \\                type: type,
         \\                value: value
         \\            });
@@ -128,10 +148,10 @@ pub fn register(ctx: *JSContext) !void {
         \\var __transform_cache = {};
         \\
         \\// Get or create a transform wrapper for an entity
-        \\function __getTransform(entityIndex, entityGen) {
-        \\    var key = entityIndex + '_' + entityGen;
+        \\function __getTransform(entityId) {
+        \\    var key = '' + entityId;
         \\    if (!__transform_cache[key]) {
-        \\        __transform_cache[key] = new Transform(entityIndex, entityGen);
+        \\        __transform_cache[key] = new Transform(entityId);
         \\    }
         \\    return __transform_cache[key];
         \\}
@@ -139,12 +159,13 @@ pub fn register(ctx: *JSContext) !void {
         \\// Entity method to get transform
         \\function __entity_getTransform(entity) {
         \\    if (!entity || !entity.valid) return null;
-        \\    return __getTransform(entity.index, entity.generation);
+        \\    return __getTransform(entity.id);
         \\}
         \\
         \\true;
     ;
-    _ = try ctx.eval(transform_code, "<transform>");
+    const result = try ctx.eval(transform_code, "<transform>");
+    ctx.freeValue(result);
 }
 
 /// Sync a transform from Zig to JavaScript.
@@ -175,8 +196,15 @@ pub fn syncTransform(ctx: *JSContext, entity: Entity, transform: *const Transfor
     const right = bindings.vec3ToJS(ctx, transform.right());
     const up = bindings.vec3ToJS(ctx, transform.up());
 
-    // Call the sync method
-    _ = ctx.call(sync_method, transform_js, &.{ pos, rot, scale, forward, right, up }) catch {};
+    defer ctx.freeValue(pos);
+    defer ctx.freeValue(rot);
+    defer ctx.freeValue(scale);
+    defer ctx.freeValue(forward);
+    defer ctx.freeValue(right);
+    defer ctx.freeValue(up);
+
+    const call_result = ctx.call(sync_method, transform_js, &.{ pos, rot, scale, forward, right, up }) catch return;
+    ctx.freeValue(call_result);
 
     _ = key;
 }
@@ -249,6 +277,19 @@ fn applyUpdate(ctx: *JSContext, transform: *TransformComponent, update_type: []c
         const roll = ctx.toFloat32(roll_val) catch 0;
 
         transform.rotateEuler(pitch, yaw, roll);
+    } else if (std.mem.eql(u8, update_type, "setRotationEuler")) {
+        const pitch_val = ctx.getProperty(value, "pitch");
+        const yaw_val = ctx.getProperty(value, "yaw");
+        const roll_val = ctx.getProperty(value, "roll");
+        defer ctx.freeValue(pitch_val);
+        defer ctx.freeValue(yaw_val);
+        defer ctx.freeValue(roll_val);
+
+        const pitch = ctx.toFloat32(pitch_val) catch 0;
+        const yaw = ctx.toFloat32(yaw_val) catch 0;
+        const roll = ctx.toFloat32(roll_val) catch 0;
+
+        transform.setRotationEuler(pitch, yaw, roll);
     } else if (std.mem.eql(u8, update_type, "lookAt")) {
         const target_val = ctx.getProperty(value, "target");
         const up_val = ctx.getProperty(value, "up");

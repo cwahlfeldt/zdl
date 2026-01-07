@@ -79,6 +79,9 @@ pub const EngineConfig = struct {
     window_height: u32 = 720,
     target_fps: u32 = 60,
     clear_color: Color = .{ .r = 0.1, .g = 0.1, .b = 0.15, .a = 1.0 },
+    app_name: ?[:0]const u8 = null,
+    app_version: ?[:0]const u8 = null,
+    app_identifier: ?[:0]const u8 = "com.zdl.engine",
 };
 
 /// Main engine that manages SDL, GPU, and the game loop
@@ -128,6 +131,8 @@ pub const Engine = struct {
     should_quit: bool,
 
     pub fn init(allocator: std.mem.Allocator, config: EngineConfig) !Engine {
+        const app_name = config.app_name orelse config.window_title;
+        try sdl.setAppMetadata(app_name, config.app_version, config.app_identifier);
         try sdl.init(.{ .video = true });
         errdefer sdl.quit(.{ .video = true });
 

@@ -63,8 +63,9 @@ pub const ScriptComponent = struct {
         const code = try file.readToEndAlloc(allocator, 1024 * 1024);
         defer allocator.free(code);
 
-        // Evaluate the script directly - it should end with the class name as the last expression
-        const wrapped_code = code;
+        // Wrap the script to avoid global redeclarations on hot-reload.
+        const wrapped_code = try wrapScriptForEval(allocator, code);
+        defer allocator.free(wrapped_code);
 
         // Create null-terminated filename
         var filename_buf: [256]u8 = undefined;
@@ -138,6 +139,48 @@ pub const ScriptComponent = struct {
         std.debug.print("[Script] Loaded: {s}\n", .{self.script_path});
     }
 
+    fn wrapScriptForEval(allocator: std.mem.Allocator, code: []const u8) ![]u8 {
+        var end = code.len;
+        while (end > 0 and std.ascii.isWhitespace(code[end - 1])) : (end -= 1) {}
+
+        if (end == 0) return allocator.dupe(u8, code);
+
+        if (code[end - 1] == ';') {
+            end -= 1;
+            while (end > 0 and std.ascii.isWhitespace(code[end - 1])) : (end -= 1) {}
+        }
+
+        if (end == 0) return allocator.dupe(u8, code);
+
+        var start = end;
+        while (start > 0 and isIdentChar(code[start - 1])) : (start -= 1) {}
+
+        if (start == end or !isIdentStart(code[start])) {
+            return allocator.dupe(u8, code);
+        }
+
+        const ident = code[start..end];
+
+        var wrapped = std.array_list.Managed(u8).init(allocator);
+        errdefer wrapped.deinit();
+
+        try wrapped.appendSlice("(function(){\n");
+        try wrapped.appendSlice(code[0..start]);
+        try wrapped.appendSlice("return ");
+        try wrapped.appendSlice(ident);
+        try wrapped.appendSlice(";\n})();");
+
+        return wrapped.toOwnedSlice();
+    }
+
+    fn isIdentChar(ch: u8) bool {
+        return std.ascii.isAlphanumeric(ch) or ch == '_' or ch == '$';
+    }
+
+    fn isIdentStart(ch: u8) bool {
+        return std.ascii.isAlphabetic(ch) or ch == '_' or ch == '$';
+    }
+
     /// Check if the script file has been modified.
     pub fn needsReload(self: *Self) bool {
         const file = std.fs.cwd().openFile(self.script_path, .{}) catch return false;
@@ -171,9 +214,11 @@ pub const ScriptComponent = struct {
         if (self.started or !self.enabled or !self.loaded) return;
 
         if (ctx.isFunction(self.on_start)) {
-            _ = ctx.call(self.on_start, self.instance, &.{}) catch {
+            const result = ctx.call(self.on_start, self.instance, &.{}) catch {
                 std.debug.print("[Script] Error in onStart: {s}\n", .{self.script_path});
+                return;
             };
+            ctx.freeValue(result);
         }
 
         self.started = true;
@@ -185,9 +230,12 @@ pub const ScriptComponent = struct {
 
         if (ctx.isFunction(self.on_update)) {
             const dt_val = ctx.newFloat(delta_time);
-            _ = ctx.call(self.on_update, self.instance, &.{dt_val}) catch {
+            defer ctx.freeValue(dt_val);
+            const result = ctx.call(self.on_update, self.instance, &.{dt_val}) catch {
                 std.debug.print("[Script] Error in onUpdate: {s}\n", .{self.script_path});
+                return;
             };
+            ctx.freeValue(result);
         }
     }
 
@@ -196,9 +244,11 @@ pub const ScriptComponent = struct {
         if (!self.started or !self.loaded) return;
 
         if (ctx.isFunction(self.on_destroy)) {
-            _ = ctx.call(self.on_destroy, self.instance, &.{}) catch {
+            const result = ctx.call(self.on_destroy, self.instance, &.{}) catch {
                 std.debug.print("[Script] Error in onDestroy: {s}\n", .{self.script_path});
+                return;
             };
+            ctx.freeValue(result);
         }
     }
 

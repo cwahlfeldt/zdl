@@ -27,6 +27,7 @@ pub const JSRuntime = struct {
 
     /// Deinitialize the runtime and free all resources.
     pub fn deinit(self: *Self) void {
+        self.runtime.runGC();
         self.runtime.deinit();
     }
 

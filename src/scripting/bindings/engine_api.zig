@@ -38,7 +38,8 @@ pub fn register(ctx: *JSContext) !void {
         \\
         \\true;
     ;
-    _ = try ctx.eval(engine_code, "<engine>");
+    const result = try ctx.eval(engine_code, "<engine>");
+    ctx.freeValue(result);
 }
 
 /// Update engine properties for the current frame.

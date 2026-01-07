@@ -23,7 +23,7 @@ pub fn register(ctx: *JSContext) !void {
         \\    entityExists: function(entity) {
         \\        if (!entity || !entity.valid) return false;
         \\        // Check in the entities registry
-        \\        return __scene_entities[entity.index + '_' + entity.generation] || false;
+        \\        return __scene_entities['' + entity.id] || false;
         \\    },
         \\
         \\    // Camera management
@@ -63,7 +63,8 @@ pub fn register(ctx: *JSContext) !void {
         \\
         \\true;
     ;
-    _ = try ctx.eval(scene_code, "<scene>");
+    const result = try ctx.eval(scene_code, "<scene>");
+    ctx.freeValue(result);
 }
 
 /// Update scene state for the current frame.

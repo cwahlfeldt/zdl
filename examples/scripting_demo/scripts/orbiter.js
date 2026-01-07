@@ -3,9 +3,9 @@
 
 class Orbiter {
   constructor() {
-    this.orbitRadius = 3.0;
+    this.orbitRadius = 5.0;
     this.orbitSpeed = 1.5;
-    this.bobSpeed = 2.0;
+    this.bobSpeed = 3.0;
     this.bobAmount = 0.5;
     this.time = 0;
   }
@@ -38,3 +38,5 @@ class Orbiter {
     console.log("Orbiter destroyed");
   }
 }
+
+Orbiter;

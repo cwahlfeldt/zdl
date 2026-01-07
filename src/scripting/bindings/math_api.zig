@@ -12,8 +12,27 @@ const bindings = @import("bindings.zig");
 pub fn register(ctx: *JSContext) !void {
     // Create basic Math object since we skip intrinsics
     const math_code =
+        \\if (typeof Math === 'undefined') {
         \\var Math = {
-        \\    sqrt: function(x) { return __native_sqrt(x); },
+        \\    sqrt: function(x) {
+        \\        if (x < 0) return 0 / 0;  // NaN
+        \\        if (x === 0) return 0;
+        \\        if (x === 1) return 1;
+        \\        // Binary search for square root
+        \\        var low = 0;
+        \\        var high = x > 1 ? x : 1;
+        \\        var mid = 0;
+        \\        for (var i = 0; i < 50; i++) {
+        \\            mid = low + (high - low) * 0.5;
+        \\            var square = mid * mid;
+        \\            var diff = square - x;
+        \\            if (diff < 0) diff = -diff;  // abs without calling Math.abs
+        \\            if (diff < 0.000001) break;
+        \\            if (square < x) low = mid;
+        \\            else high = mid;
+        \\        }
+        \\        return mid;
+        \\    },
         \\    abs: function(x) { return x < 0 ? -x : x; },
         \\    sin: function(x) { return __native_sin(x); },
         \\    cos: function(x) { return __native_cos(x); },
@@ -34,55 +53,56 @@ pub fn register(ctx: *JSContext) !void {
         \\    E: 2.718281828459045,
         \\    clamp: function(x, min, max) { return Math.max(min, Math.min(max, x)); }
         \\};
+        \\}
         \\
         \\// Native math functions will be provided by Zig
         \\// For now, provide stub implementations using power series
-        \\if (typeof __native_sqrt === 'undefined') {
-        \\    __native_sqrt = function(x) {
-        \\        if (x < 0) return NaN;
+        \\if (typeof __native_sqrt === 'undefined') { __native_sqrt = function(x) {
+        \\        if (x < 0) return 0 / 0;
         \\        if (x === 0) return 0;
         \\        var guess = x / 2;
         \\        for (var i = 0; i < 20; i++) {
         \\            guess = (guess + x / guess) / 2;
         \\        }
         \\        return guess;
-        \\    };
-        \\    __native_sin = function(x) {
-        \\        x = x % (2 * Math.PI);
+        \\    }; }
+        \\if (typeof __native_sin === 'undefined') { __native_sin = function(x) {
+        \\        x = x % (2 * 3.141592653589793);
         \\        var result = 0, term = x;
         \\        for (var n = 1; n <= 10; n++) {
         \\            result += term;
         \\            term *= -x * x / (2 * n * (2 * n + 1));
         \\        }
         \\        return result;
-        \\    };
-        \\    __native_cos = function(x) {
-        \\        x = x % (2 * Math.PI);
+        \\    }; }
+        \\if (typeof __native_cos === 'undefined') { __native_cos = function(x) {
+        \\        x = x % (2 * 3.141592653589793);
         \\        var result = 0, term = 1;
         \\        for (var n = 0; n <= 10; n++) {
         \\            result += term;
         \\            term *= -x * x / ((2 * n + 1) * (2 * n + 2));
         \\        }
         \\        return result;
-        \\    };
-        \\    __native_tan = function(x) { return __native_sin(x) / __native_cos(x); };
-        \\    __native_asin = function(x) { return x; }; // Stub
-        \\    __native_acos = function(x) { return Math.PI / 2 - x; }; // Stub
-        \\    __native_atan = function(x) { return x; }; // Stub
-        \\    __native_atan2 = function(y, x) { return __native_atan(y / x); }; // Stub
-        \\    __native_pow = function(x, y) {
+        \\    }; }
+        \\if (typeof __native_tan === 'undefined') { __native_tan = function(x) { return __native_sin(x) / __native_cos(x); }; }
+        \\if (typeof __native_asin === 'undefined') { __native_asin = function(x) { return x; }; } // Stub
+        \\if (typeof __native_acos === 'undefined') { __native_acos = function(x) { return 1.5707963267948966 - x; }; } // Stub
+        \\if (typeof __native_atan === 'undefined') { __native_atan = function(x) { return x; }; } // Stub
+        \\if (typeof __native_atan2 === 'undefined') { __native_atan2 = function(y, x) { return __native_atan(y / x); }; } // Stub
+        \\if (typeof __native_pow === 'undefined') { __native_pow = function(x, y) {
         \\        if (y === 0) return 1;
         \\        if (y === 1) return x;
         \\        var result = 1;
-        \\        for (var i = 0; i < Math.abs(y); i++) result *= x;
+        \\        var abs_y = y < 0 ? -y : y;
+        \\        for (var i = 0; i < abs_y; i++) result *= x;
         \\        return y < 0 ? 1 / result : result;
-        \\    };
-        \\    __native_exp = function(x) { return __native_pow(Math.E, x); };
-        \\    __native_log = function(x) { return x; }; // Stub
-        \\}
+        \\    }; }
+        \\if (typeof __native_exp === 'undefined') { __native_exp = function(x) { return __native_pow(2.718281828459045, x); }; }
+        \\if (typeof __native_log === 'undefined') { __native_log = function(x) { return x; }; } // Stub
         \\true;
     ;
-    _ = try ctx.eval(math_code, "<math-builtin>");
+    const math_result = try ctx.eval(math_code, "<math-builtin>");
+    ctx.freeValue(math_result);
 
     // Create Vec2 constructor function
     const vec2_code =
@@ -305,5 +325,6 @@ pub fn register(ctx: *JSContext) !void {
         \\Math.TAU = Math.PI * 2;
         \\true;
     ;
-    _ = try ctx.eval(math_utils, "<math>");
+    const utils_result = try ctx.eval(math_utils, "<math>");
+    ctx.freeValue(utils_result);
 }

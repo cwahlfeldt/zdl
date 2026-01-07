@@ -18,9 +18,9 @@ pub const JSContext = struct {
         const ctx = quickjs.Context.init(runtime.runtime);
         std.debug.print("[JSContext] Context created, ptr={?}\n", .{ctx.ptr});
 
-        // Skip intrinsics - they seem to cause crashes
-        // We'll provide our own Math object
-        std.debug.print("[JSContext] Skipping intrinsics (will use custom Math)\n", .{});
+        // Skip intrinsics - they cause crashes with this QuickJS version
+        // We'll provide our own Math object implementation
+        std.debug.print("[JSContext] Skipping intrinsics (causes crashes)\n", .{});
 
         std.debug.print("[JSContext] Getting global object...\n", .{});
         const global = ctx.getGlobalObject();

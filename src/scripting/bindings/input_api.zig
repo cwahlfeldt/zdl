@@ -133,7 +133,8 @@ pub fn register(ctx: *JSContext) !void {
         \\
         \\true;
     ;
-    _ = try ctx.eval(input_code, "<input>");
+    const result = try ctx.eval(input_code, "<input>");
+    ctx.freeValue(result);
 }
 
 /// Update input state for the current frame.

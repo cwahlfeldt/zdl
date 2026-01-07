@@ -79,8 +79,10 @@ pub fn register(ctx: *JSContext) !void {
         \\true;
     ;
 
-    _ = try ctx.eval(native_funcs, "<console>");
-    _ = try ctx.eval(console_code, "<console>");
+    const native_result = try ctx.eval(native_funcs, "<console>");
+    ctx.freeValue(native_result);
+    const console_result = try ctx.eval(console_code, "<console>");
+    ctx.freeValue(console_result);
 }
 
 /// Install the native print function.
@@ -99,7 +101,8 @@ pub fn installPrintFunction(ctx: *JSContext) !void {
         \\}
         \\true;
     ;
-    _ = try ctx.eval(print_func, "<console>");
+    const print_result = try ctx.eval(print_func, "<console>");
+    ctx.freeValue(print_result);
 }
 
 /// Flush and print all pending console messages.
