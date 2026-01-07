@@ -10,6 +10,11 @@ const Texture = @import("../resources/texture.zig").Texture;
 const Material = @import("../resources/material.zig").Material;
 const MaterialUniforms = @import("../resources/material.zig").MaterialUniforms;
 const Audio = @import("../audio/audio.zig").Audio;
+const primitives = @import("../resources/primitives.zig");
+
+// IBL imports
+const BrdfLut = @import("../ibl/brdf_lut.zig").BrdfLut;
+const EnvironmentMap = @import("../ibl/environment_map.zig").EnvironmentMap;
 
 // ECS imports
 const Scene = @import("../ecs/scene.zig").Scene;
@@ -45,6 +50,21 @@ const PBRShaderConfig = if (is_macos) struct {
     const format = sdl.gpu.ShaderFormatFlags{ .spirv = true };
     const vertex_path = "build/assets/shaders/pbr.vert.spv";
     const fragment_path = "build/assets/shaders/pbr.frag.spv";
+    const vertex_entry = "main";
+    const fragment_entry = "main";
+};
+
+// Skybox shader configuration
+const SkyboxShaderConfig = if (is_macos) struct {
+    const format = sdl.gpu.ShaderFormatFlags{ .msl = true };
+    const vertex_path = "assets/shaders/skybox.metal";
+    const fragment_path = "assets/shaders/skybox.metal";
+    const vertex_entry = "skybox_vertex_main";
+    const fragment_entry = "skybox_fragment_main";
+} else struct {
+    const format = sdl.gpu.ShaderFormatFlags{ .spirv = true };
+    const vertex_path = "build/assets/shaders/skybox.vert.spv";
+    const fragment_path = "build/assets/shaders/skybox.frag.spv";
     const vertex_entry = "main";
     const fragment_entry = "main";
 };
@@ -104,6 +124,14 @@ pub const Engine = struct {
     default_mr_texture: ?Texture, // Default metallic-roughness (0, 0.5, 0)
     default_ao_texture: ?Texture, // White AO texture
     default_emissive_texture: ?Texture, // Black emissive texture
+    skybox_pipeline: ?sdl.gpu.GraphicsPipeline,
+    skybox_mesh: ?Mesh,
+
+    // IBL resources
+    brdf_lut: ?*BrdfLut, // BRDF integration lookup table
+    current_environment: ?*EnvironmentMap, // Active environment map
+    default_environment: ?*EnvironmentMap, // Fallback neutral environment
+    ibl_enabled: bool, // Whether IBL is active
 
     // Scene lighting (updated per frame for PBR)
     light_uniforms: LightUniforms,
@@ -289,6 +317,13 @@ pub const Engine = struct {
             .default_mr_texture = null,
             .default_ao_texture = null,
             .default_emissive_texture = null,
+            .skybox_pipeline = null,
+            .skybox_mesh = null,
+            // IBL resources initialized lazily via initIBL()
+            .brdf_lut = null,
+            .current_environment = null,
+            .default_environment = null,
+            .ibl_enabled = false,
             .light_uniforms = LightUniforms.default(),
             .window_width = config.window_width,
             .window_height = config.window_height,
@@ -380,7 +415,7 @@ pub const Engine = struct {
             .entry_point = PBRShaderConfig.fragment_entry,
             .format = PBRShaderConfig.format,
             .stage = .fragment,
-            .num_samplers = 5, // base_color, normal, metallic_roughness, ao, emissive
+            .num_samplers = 8, // base_color, normal, metallic_roughness, ao, emissive + irradiance, prefiltered, brdf_lut
             .num_storage_buffers = 0,
             .num_storage_textures = 0,
             .num_uniform_buffers = 2, // material + lights
@@ -435,6 +470,69 @@ pub const Engine = struct {
         return self.pbr_pipeline != null;
     }
 
+    /// Initialize Image-Based Lighting support
+    pub fn initIBL(self: *Engine) !void {
+        if (self.brdf_lut != null) return; // Already initialized
+
+        var mutable_device = self.device;
+
+        // Generate BRDF lookup table (CPU-based for now)
+        // Using 128x128 for reasonable startup time (~2-3 seconds)
+        const brdf_lut = try self.allocator.create(BrdfLut);
+        errdefer self.allocator.destroy(brdf_lut);
+        brdf_lut.* = try BrdfLut.generateCPU(self.allocator, &mutable_device, 128);
+        self.brdf_lut = brdf_lut;
+
+        // Create default neutral environment
+        const default_env = try self.allocator.create(EnvironmentMap);
+        errdefer self.allocator.destroy(default_env);
+        default_env.* = try EnvironmentMap.createDefault(&mutable_device);
+        self.default_environment = default_env;
+
+        // Set default as current environment
+        self.current_environment = default_env;
+        self.ibl_enabled = true;
+
+        // Update light uniforms with IBL parameters
+        self.light_uniforms.setIBLEnabled(true);
+        self.light_uniforms.setIBLParams(1.0, default_env.max_mip_level);
+
+        try self.initSkybox();
+    }
+
+    /// Set the active environment map
+    pub fn setEnvironmentMap(self: *Engine, env: *EnvironmentMap) void {
+        self.current_environment = env;
+        // Update max LOD when changing environments
+        self.light_uniforms.setIBLParams(self.light_uniforms.ibl_params[0], env.max_mip_level);
+    }
+
+    /// Check if IBL is available
+    pub fn hasIBL(self: *Engine) bool {
+        return self.brdf_lut != null and self.ibl_enabled;
+    }
+
+    /// Load HDR environment map from equirectangular .hdr file
+    pub fn loadHDREnvironment(self: *Engine, path: []const u8) !*EnvironmentMap {
+        if (self.brdf_lut == null) {
+            return error.IBLNotInitialized;
+        }
+
+        var mutable_device = self.device;
+
+        // Load environment from HDR file
+        const env = try self.allocator.create(EnvironmentMap);
+        errdefer self.allocator.destroy(env);
+
+        env.* = try EnvironmentMap.loadFromHDR(self.allocator, &mutable_device, path);
+
+        // Set as current environment
+        self.current_environment = env;
+        self.light_uniforms.setIBLParams(1.0, env.max_mip_level);
+
+        return env;
+    }
+
     pub fn deinit(self: *Engine) void {
         // Clean up scripting
         if (self.script_system) |script_sys| {
@@ -453,6 +551,23 @@ pub const Engine = struct {
         if (self.default_mr_texture) |t| t.deinit(&mutable_device);
         if (self.default_ao_texture) |t| t.deinit(&mutable_device);
         if (self.default_emissive_texture) |t| t.deinit(&mutable_device);
+        if (self.skybox_pipeline) |p| self.device.releaseGraphicsPipeline(p);
+        if (self.skybox_mesh) |m| {
+            var mutable_mesh = m;
+            mutable_mesh.deinit(&mutable_device);
+        }
+
+        // Clean up IBL resources
+        if (self.brdf_lut) |lut| {
+            var mutable_lut = lut;
+            mutable_lut.deinit(&mutable_device);
+            self.allocator.destroy(lut);
+        }
+        if (self.default_environment) |env| {
+            var mutable_env = env;
+            mutable_env.deinit(&mutable_device);
+            self.allocator.destroy(env);
+        }
 
         if (self.depth_texture) |dt| self.device.releaseTexture(dt);
         self.device.releaseGraphicsPipeline(self.pipeline);
@@ -630,6 +745,104 @@ pub const Engine = struct {
             .engine = self,
         };
     }
+
+    /// Initialize skybox rendering pipeline and mesh.
+    pub fn initSkybox(self: *Engine) !void {
+        if (self.skybox_pipeline != null) return;
+
+        var mutable_device = self.device;
+
+        // Load skybox shaders
+        const skybox_vertex_code = try std.fs.cwd().readFileAlloc(
+            self.allocator,
+            SkyboxShaderConfig.vertex_path,
+            1024 * 1024,
+        );
+        defer self.allocator.free(skybox_vertex_code);
+
+        const skybox_fragment_code = if (is_macos)
+            skybox_vertex_code
+        else
+            try std.fs.cwd().readFileAlloc(
+                self.allocator,
+                SkyboxShaderConfig.fragment_path,
+                1024 * 1024,
+            );
+        defer if (!is_macos) self.allocator.free(skybox_fragment_code);
+
+        const skybox_vertex_shader = try self.device.createShader(.{
+            .code = skybox_vertex_code,
+            .entry_point = SkyboxShaderConfig.vertex_entry,
+            .format = SkyboxShaderConfig.format,
+            .stage = .vertex,
+            .num_samplers = 0,
+            .num_storage_buffers = 0,
+            .num_storage_textures = 0,
+            .num_uniform_buffers = 1, // MVP uniforms
+        });
+        defer self.device.releaseShader(skybox_vertex_shader);
+
+        const skybox_fragment_shader = try self.device.createShader(.{
+            .code = skybox_fragment_code,
+            .entry_point = SkyboxShaderConfig.fragment_entry,
+            .format = SkyboxShaderConfig.format,
+            .stage = .fragment,
+            .num_samplers = 1, // cubemap
+            .num_storage_buffers = 0,
+            .num_storage_textures = 0,
+            .num_uniform_buffers = 0,
+        });
+        defer self.device.releaseShader(skybox_fragment_shader);
+
+        const vertex_buffer_desc = Mesh.getVertexBufferDesc();
+        const vertex_attributes = Mesh.getVertexAttributes();
+
+        const color_target_desc = sdl.gpu.ColorTargetDescription{
+            .format = try self.device.getSwapchainTextureFormat(self.window),
+            .blend_state = .{
+                .enable_blend = false,
+                .color_blend = .add,
+                .alpha_blend = .add,
+                .source_color = .one,
+                .source_alpha = .one,
+                .destination_color = .zero,
+                .destination_alpha = .zero,
+                .enable_color_write_mask = true,
+                .color_write_mask = .{ .red = true, .green = true, .blue = true, .alpha = true },
+            },
+        };
+
+        self.skybox_pipeline = try self.device.createGraphicsPipeline(.{
+            .vertex_shader = skybox_vertex_shader,
+            .fragment_shader = skybox_fragment_shader,
+            .primitive_type = .triangle_list,
+            .vertex_input_state = .{
+                .vertex_buffer_descriptions = &[_]sdl.gpu.VertexBufferDescription{vertex_buffer_desc},
+                .vertex_attributes = &vertex_attributes,
+            },
+            .rasterizer_state = .{
+                .cull_mode = .front, // Render inside of cube
+                .front_face = .counter_clockwise,
+            },
+            .target_info = .{
+                .color_target_descriptions = &[_]sdl.gpu.ColorTargetDescription{color_target_desc},
+                .depth_stencil_format = .depth32_float,
+            },
+            .depth_stencil_state = .{
+                .enable_depth_test = true,
+                .enable_depth_write = false,
+                .compare = .less_or_equal,
+                .enable_stencil_test = false,
+            },
+        });
+
+        if (self.skybox_mesh == null) {
+            var cube_mesh = try primitives.createCube(self.allocator);
+            errdefer cube_mesh.deinit(&mutable_device);
+            try cube_mesh.upload(&mutable_device);
+            self.skybox_mesh = cube_mesh;
+        }
+    }
 };
 
 /// Represents an active render frame
@@ -691,6 +904,35 @@ pub const RenderFrame = struct {
             return true;
         }
         return false;
+    }
+
+    /// Draw the skybox if available.
+    pub fn drawSkybox(self: *RenderFrame, view: @import("../math/math.zig").Mat4, projection: @import("../math/math.zig").Mat4) void {
+        const skybox = self.engine.skybox_pipeline orelse return;
+        const mesh = self.engine.skybox_mesh orelse return;
+        const env = if (self.engine.current_environment) |e|
+            e
+        else if (self.engine.default_environment) |e|
+            e
+        else
+            return;
+
+        self.pass.bindGraphicsPipeline(skybox);
+
+        var view_no_translation = view;
+        view_no_translation.data[12] = 0.0;
+        view_no_translation.data[13] = 0.0;
+        view_no_translation.data[14] = 0.0;
+
+        const uniforms = Uniforms.init(@import("../math/math.zig").Mat4.identity(), view_no_translation, projection);
+        self.pushUniforms(uniforms);
+
+        self.pass.bindFragmentSamplers(0, &[_]sdl.gpu.TextureSamplerBinding{.{
+            .texture = env.prefiltered.texture,
+            .sampler = self.engine.sampler,
+        }});
+
+        self.drawMesh(mesh);
     }
 
     /// Push material uniforms for PBR rendering.
@@ -770,6 +1012,35 @@ pub const RenderFrame = struct {
         });
     }
 
+    /// Bind IBL textures (irradiance, pre-filtered environment, BRDF LUT).
+    /// Binds to slots 5, 6, 7 respectively. Falls back to white texture if IBL not available.
+    pub fn bindIBLTextures(self: *RenderFrame) void {
+        const eng = self.engine;
+
+        // Get IBL textures or fallback to white
+        const irradiance_tex = if (eng.current_environment) |env|
+            env.irradiance.texture
+        else
+            eng.white_texture.gpu_texture;
+
+        const prefiltered_tex = if (eng.current_environment) |env|
+            env.prefiltered.texture
+        else
+            eng.white_texture.gpu_texture;
+
+        const brdf_lut_tex = if (eng.brdf_lut) |lut|
+            lut.texture.gpu_texture
+        else
+            eng.white_texture.gpu_texture;
+
+        // Bind IBL textures to slots 5, 6, 7
+        self.pass.bindFragmentSamplers(5, &[_]sdl.gpu.TextureSamplerBinding{
+            .{ .texture = irradiance_tex, .sampler = eng.sampler },
+            .{ .texture = prefiltered_tex, .sampler = eng.sampler },
+            .{ .texture = brdf_lut_tex, .sampler = eng.sampler },
+        });
+    }
+
     /// Draw a mesh with PBR material.
     /// Binds textures, pushes uniforms, and draws the mesh.
     pub fn drawMeshPBR(self: *RenderFrame, mesh: Mesh, material: Material, model_matrix: @import("../math/math.zig").Mat4, view: @import("../math/math.zig").Mat4, projection: @import("../math/math.zig").Mat4) void {
@@ -784,8 +1055,11 @@ pub const RenderFrame = struct {
         // Push light uniforms
         self.pushLightUniforms(self.engine.light_uniforms);
 
-        // Bind textures
+        // Bind PBR material textures (slots 0-4)
         self.bindPBRTextures(material);
+
+        // Bind IBL textures (slots 5-7)
+        self.bindIBLTextures();
 
         // Draw
         self.drawMesh(mesh);

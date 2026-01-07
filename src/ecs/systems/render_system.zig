@@ -75,6 +75,9 @@ pub const RenderSystem = struct {
             updateLightsFromScene(scene, frame.engine, cam_pos);
         }
 
+        // Render skybox first (depth write disabled).
+        frame.drawSkybox(view, projection);
+
         // Iterate all mesh renderers
         var ctx = RenderContext{
             .frame = frame,
@@ -103,7 +106,12 @@ pub const RenderSystem = struct {
                 ctx.current_pipeline_is_pbr = true;
             }
 
-            const material = renderer.material.?;
+            var material = renderer.material.?;
+            if (material.base_color_texture == null) {
+                if (renderer.texture) |tex| {
+                    material.base_color_texture = tex;
+                }
+            }
 
             // Push MVP uniforms
             const uniforms = Uniforms.init(transform.world_matrix, ctx.view, ctx.projection);
@@ -118,6 +126,9 @@ pub const RenderSystem = struct {
 
             // Bind textures
             ctx.frame.bindPBRTextures(material);
+
+            // Bind IBL textures (slots 5-7)
+            ctx.frame.bindIBLTextures();
 
             // Draw mesh
             ctx.frame.drawMesh(renderer.mesh.*);

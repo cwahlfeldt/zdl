@@ -36,7 +36,7 @@ pub const AccessorReader = struct {
 
         for (0..accessor.count) |i| {
             const offset = i * stride;
-            const values = self.readComponents(f32, 3, data, offset, accessor.component_type);
+            const values = self.readComponents(f32, 3, data, offset, accessor.component_type, accessor.normalized);
             result[i] = Vec3.init(values[0], values[1], values[2]);
         }
 
@@ -58,7 +58,7 @@ pub const AccessorReader = struct {
 
         for (0..accessor.count) |i| {
             const offset = i * stride;
-            const values = self.readComponents(f32, 2, data, offset, accessor.component_type);
+            const values = self.readComponents(f32, 2, data, offset, accessor.component_type, accessor.normalized);
             result[i] = Vec2.init(values[0], values[1]);
         }
 
@@ -80,7 +80,7 @@ pub const AccessorReader = struct {
 
         for (0..accessor.count) |i| {
             const offset = i * stride;
-            const values = self.readComponents(f32, 4, data, offset, accessor.component_type);
+            const values = self.readComponents(f32, 4, data, offset, accessor.component_type, accessor.normalized);
             result[i] = Vec4.init(values[0], values[1], values[2], values[3]);
         }
 
@@ -102,7 +102,7 @@ pub const AccessorReader = struct {
 
         for (0..accessor.count) |i| {
             const offset = i * stride;
-            result[i] = self.readScalar(u32, data, offset, accessor.component_type);
+            result[i] = self.readScalar(u32, data, offset, accessor.component_type, accessor.normalized);
         }
 
         return result;
@@ -125,7 +125,11 @@ pub const AccessorReader = struct {
         const buffer = self.asset.buffers[buffer_view.buffer];
         const start = buffer_view.byte_offset + accessor.byte_offset;
         const element_size = accessor.component_type.byteSize() * accessor.element_type.componentCount();
-        const end = start + accessor.count * element_size;
+        const stride = self.getStride(accessor);
+        const end = if (accessor.count == 0)
+            start
+        else
+            start + (accessor.count - 1) * stride + element_size;
 
         if (end > buffer.len) {
             return GLTFError.AccessorOutOfBounds;
@@ -153,13 +157,14 @@ pub const AccessorReader = struct {
         data: []const u8,
         offset: usize,
         component_type: ComponentType,
+        normalized: bool,
     ) [N]T {
         _ = self;
         var result: [N]T = undefined;
 
         for (0..N) |i| {
             const component_offset = offset + i * component_type.byteSize();
-            result[i] = readComponent(T, data, component_offset, component_type);
+            result[i] = readComponent(T, data, component_offset, component_type, normalized);
         }
 
         return result;
@@ -172,14 +177,42 @@ pub const AccessorReader = struct {
         data: []const u8,
         offset: usize,
         component_type: ComponentType,
+        normalized: bool,
     ) T {
         _ = self;
-        return readComponent(T, data, offset, component_type);
+        return readComponent(T, data, offset, component_type, normalized);
     }
 };
 
 /// Read a single component value and convert to target type
-fn readComponent(comptime T: type, data: []const u8, offset: usize, component_type: ComponentType) T {
+fn readComponent(comptime T: type, data: []const u8, offset: usize, component_type: ComponentType, normalized: bool) T {
+    if (T == f32 and normalized) {
+        return switch (component_type) {
+            .byte => clampNormalized(@as(f32, @floatFromInt(@as(i8, @bitCast(data[offset])))), 127.0),
+            .unsigned_byte => @as(f32, @floatFromInt(data[offset])) / 255.0,
+            .short => blk: {
+                const bytes = data[offset..][0..2];
+                const value = std.mem.readInt(i16, bytes, .little);
+                break :blk clampNormalized(@as(f32, @floatFromInt(value)), 32767.0);
+            },
+            .unsigned_short => blk: {
+                const bytes = data[offset..][0..2];
+                const value = std.mem.readInt(u16, bytes, .little);
+                break :blk @as(f32, @floatFromInt(value)) / 65535.0;
+            },
+            .unsigned_int => blk: {
+                const bytes = data[offset..][0..4];
+                const value = std.mem.readInt(u32, bytes, .little);
+                break :blk @as(f32, @floatFromInt(value)) / 4294967295.0;
+            },
+            .float => blk: {
+                const bytes = data[offset..][0..4];
+                const bits = std.mem.readInt(u32, bytes, .little);
+                break :blk @as(f32, @bitCast(bits));
+            },
+        };
+    }
+
     return switch (component_type) {
         .byte => convertToType(T, @as(i8, @bitCast(data[offset]))),
         .unsigned_byte => convertToType(T, data[offset]),
@@ -201,6 +234,11 @@ fn readComponent(comptime T: type, data: []const u8, offset: usize, component_ty
             break :blk convertToType(T, @as(f32, @bitCast(bits)));
         },
     };
+}
+
+fn clampNormalized(value: f32, max_value: f32) f32 {
+    const scaled = value / max_value;
+    return std.math.clamp(scaled, -1.0, 1.0);
 }
 
 /// Convert any numeric type to target type

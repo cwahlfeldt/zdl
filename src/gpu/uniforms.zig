@@ -83,6 +83,10 @@ pub const LightUniforms = extern struct {
     /// Camera position in world space (xyz) + padding
     camera_position: [4]f32,
 
+    // IBL parameters - 16 bytes
+    /// Environment map intensity multiplier (x), max reflection LOD (y), use IBL flag (z), padding (w)
+    ibl_params: [4]f32,
+
     // Light counts - 16 bytes
     /// Number of active point lights
     point_light_count: u32,
@@ -103,6 +107,7 @@ pub const LightUniforms = extern struct {
             .directional_color_intensity = .{ 1.0, 1.0, 1.0, 1.0 },
             .ambient_color_intensity = .{ 0.1, 0.1, 0.15, 1.0 },
             .camera_position = .{ 0, 0, 5, 0 },
+            .ibl_params = .{ 1.0, 4.0, 0.0, 0.0 }, // intensity=1.0, max_lod=4.0, use_ibl=0, pad=0
             .point_light_count = 0,
             .spot_light_count = 0,
             .point_lights = undefined,
@@ -154,13 +159,24 @@ pub const LightUniforms = extern struct {
         self.point_light_count = 0;
         self.spot_light_count = 0;
     }
+
+    /// Enable or disable IBL rendering.
+    pub fn setIBLEnabled(self: *LightUniforms, enabled: bool) void {
+        self.ibl_params[2] = if (enabled) 1.0 else 0.0;
+    }
+
+    /// Set IBL environment intensity and max reflection LOD.
+    pub fn setIBLParams(self: *LightUniforms, intensity: f32, max_lod: f32) void {
+        self.ibl_params[0] = intensity;
+        self.ibl_params[1] = max_lod;
+    }
 };
 
 // Compile-time size verification for GPU alignment
 comptime {
-    // LightUniforms header: 80 bytes (5 * 16)
+    // LightUniforms header: 96 bytes (6 * 16) - added IBL params
     // Point lights: MAX_POINT_LIGHTS * 32 bytes
     // Spot lights: MAX_SPOT_LIGHTS * 64 bytes
-    const expected_size = 80 + (MAX_POINT_LIGHTS * 32) + (MAX_SPOT_LIGHTS * 64);
+    const expected_size = 96 + (MAX_POINT_LIGHTS * 32) + (MAX_SPOT_LIGHTS * 64);
     std.debug.assert(@sizeOf(LightUniforms) == expected_size);
 }

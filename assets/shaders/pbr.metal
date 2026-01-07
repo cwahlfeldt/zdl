@@ -33,21 +33,11 @@ struct Uniforms {
 
 struct MaterialUniforms {
     float4 base_color;
-    float metallic;
-    float roughness;
-    float normal_scale;
-    float ao_strength;
-    float3 emissive;
-    float alpha_cutoff;
-    float2 uv_scale;
-    float2 uv_offset;
-    uint has_base_color_texture;
-    uint has_normal_texture;
-    uint has_metallic_roughness_texture;
-    uint has_ao_texture;
-    uint has_emissive_texture;
-    uint alpha_mode;
-    uint _pad[2];
+    float4 mrna;           // x=metallic, y=roughness, z=normal_scale, w=ao_strength
+    float4 emissive_alpha; // rgb=emissive, a=alpha_cutoff
+    float4 uv_transform;   // xy=uv_scale, zw=uv_offset
+    uint4 texture_flags;   // x=base, y=normal, z=mr, w=ao
+    uint4 extra_flags;     // x=emissive, y=alpha_mode, zw=pad
 };
 
 struct PointLight {
@@ -67,6 +57,7 @@ struct LightUniforms {
     float4 directional_color_intensity;
     float4 ambient_color_intensity;
     float4 camera_position;
+    float4 ibl_params;  // x=env_intensity, y=max_lod, z=use_ibl, w=pad
     uint point_light_count;
     uint spot_light_count;
     uint _pad[2];
@@ -112,6 +103,11 @@ vertex Vertex3DOutput pbr_vertex_main(
 // Fresnel-Schlick approximation
 float3 fresnelSchlick(float cos_theta, float3 F0) {
     return F0 + (1.0 - F0) * pow(clamp(1.0 - cos_theta, 0.0, 1.0), 5.0);
+}
+
+// Fresnel-Schlick with roughness for IBL
+float3 fresnelSchlickRoughness(float cos_theta, float3 F0, float roughness) {
+    return F0 + (max(float3(1.0 - roughness), F0) - F0) * pow(clamp(1.0 - cos_theta, 0.0, 1.0), 5.0);
 }
 
 // Trowbridge-Reitz GGX Normal Distribution Function
@@ -194,14 +190,18 @@ fragment float4 pbr_fragment_main(
     texture2d<float> metallic_roughness_tex [[texture(2)]],
     texture2d<float> ao_tex [[texture(3)]],
     texture2d<float> emissive_tex [[texture(4)]],
+    texturecube<float> irradiance_map [[texture(5)]],
+    texturecube<float> prefiltered_env [[texture(6)]],
+    texture2d<float> brdf_lut [[texture(7)]],
     sampler samp [[sampler(0)]]
 ) {
-    // UV with material transform
-    float2 uv = in.uv * material.uv_scale + material.uv_offset;
+    // UV with material transform; force repeat to avoid clamp-only sampling.
+    float2 uv = in.uv * material.uv_transform.xy + material.uv_transform.zw;
+    uv = fract(uv);
 
     // Sample base color (textures are in sRGB, convert to linear)
     float4 base_color = material.base_color * in.color;
-    if (material.has_base_color_texture != 0) {
+    if (material.texture_flags.x != 0) {
         float4 tex_color = base_color_tex.sample(samp, uv);
         // Convert from sRGB to linear space
         tex_color.rgb = pow(tex_color.rgb, float3(2.2));
@@ -209,8 +209,8 @@ fragment float4 pbr_fragment_main(
     }
 
     // Alpha handling
-    if (material.alpha_mode == 1) { // Mask mode
-        if (base_color.a < material.alpha_cutoff) {
+    if (material.extra_flags.y == 1) { // Mask mode
+        if (base_color.a < material.emissive_alpha.w) {
             discard_fragment();
         }
     }
@@ -218,9 +218,9 @@ fragment float4 pbr_fragment_main(
     float3 albedo = base_color.rgb;
 
     // Sample metallic-roughness
-    float metallic = material.metallic;
-    float roughness = material.roughness;
-    if (material.has_metallic_roughness_texture != 0) {
+    float metallic = material.mrna.x;
+    float roughness = material.mrna.y;
+    if (material.texture_flags.z != 0) {
         float4 mr = metallic_roughness_tex.sample(samp, uv);
         metallic *= mr.b;
         roughness *= mr.g;
@@ -229,9 +229,9 @@ fragment float4 pbr_fragment_main(
 
     // Get normal
     float3 N = normalize(in.normal);
-    if (material.has_normal_texture != 0) {
+    if (material.texture_flags.y != 0) {
         float3 tangent_normal = normal_tex.sample(samp, uv).xyz * 2.0 - 1.0;
-        tangent_normal.xy *= material.normal_scale;
+        tangent_normal.xy *= material.mrna.z;
 
         // Simple tangent space calculation
         float3 dPdx = dfdx(in.world_pos);
@@ -248,13 +248,13 @@ fragment float4 pbr_fragment_main(
 
     // Sample AO
     float ao = 1.0;
-    if (material.has_ao_texture != 0) {
-        ao = mix(1.0, ao_tex.sample(samp, uv).r, material.ao_strength);
+    if (material.texture_flags.w != 0) {
+        ao = mix(1.0, ao_tex.sample(samp, uv).r, material.mrna.w);
     }
 
     // Sample emissive (texture is in sRGB, convert to linear)
-    float3 emissive = material.emissive;
-    if (material.has_emissive_texture != 0) {
+    float3 emissive = material.emissive_alpha.rgb;
+    if (material.extra_flags.x != 0) {
         float3 emissive_sample = emissive_tex.sample(samp, uv).rgb;
         // Convert from sRGB to linear space
         emissive_sample = pow(emissive_sample, float3(2.2));
@@ -324,30 +324,51 @@ fragment float4 pbr_fragment_main(
         }
     }
 
-    // Ambient lighting with Fresnel-based environment approximation
-    float NdotV = max(dot(N, V), 0.0);
-    float3 F_ambient = F0 + (max(float3(1.0 - roughness), F0) - F0) * pow(1.0 - NdotV, 5.0);
+    // Ambient lighting
+    float3 ambient;
 
-    // Diffuse ambient (reduced for metals)
-    float3 kD_ambient = (1.0 - F_ambient) * (1.0 - metallic);
-    float3 diffuse_ambient = kD_ambient * albedo * lights.ambient_color_intensity.rgb * lights.ambient_color_intensity.a;
+    // Check if IBL is enabled
+    if (lights.ibl_params.z > 0.5) {
+        // Image-Based Lighting (IBL)
+        float NdotV = max(dot(N, V), 0.0);
+        float3 R = reflect(-V, N);
 
-    // Fake environment reflection for metals
-    // Simulate a simple gradient environment (sky above, ground below)
-    float3 R = reflect(-V, N);  // Reflection vector
-    float sky_factor = R.y * 0.5 + 0.5;  // 0 = ground, 1 = sky
-    float3 sky_color = float3(0.6, 0.7, 0.9);   // Light blue sky
-    float3 ground_color = float3(0.2, 0.15, 0.1);  // Brown ground
-    float3 env_color = mix(ground_color, sky_color, sky_factor);
+        // Fresnel with roughness for ambient
+        float3 F = fresnelSchlickRoughness(NdotV, F0, roughness);
 
-    // Roughness blurs the environment reflection
-    float env_mip = roughness * roughness;  // Simulate mip level blur
-    env_color = mix(env_color, float3(0.3, 0.35, 0.4), env_mip);  // Blend toward average as roughness increases
+        // Diffuse IBL
+        float3 kD = (1.0 - F) * (1.0 - metallic);
+        float3 irradiance = irradiance_map.sample(samp, N).rgb;
+        float3 diffuse = kD * irradiance * albedo;
 
-    // Specular ambient (environment reflection)
-    float3 specular_ambient = F_ambient * env_color * (1.0 - roughness * 0.5);
+        // Specular IBL
+        float lod = roughness * lights.ibl_params.y; // max_reflection_lod
+        float3 prefiltered = prefiltered_env.sample(samp, R, level(lod)).rgb;
+        float2 brdf = brdf_lut.sample(samp, float2(NdotV, roughness)).rg;
+        float3 specular = prefiltered * (F * brdf.x + brdf.y);
 
-    float3 ambient = (diffuse_ambient + specular_ambient) * ao;
+        ambient = (diffuse + specular) * ao * lights.ibl_params.x; // env_intensity
+    } else {
+        // Fallback: procedural ambient with Fresnel-based environment approximation
+        float NdotV = max(dot(N, V), 0.0);
+        float3 F_ambient = F0 + (max(float3(1.0 - roughness), F0) - F0) * pow(1.0 - NdotV, 5.0);
+
+        // Diffuse ambient (reduced for metals)
+        float3 kD_ambient = (1.0 - F_ambient) * (1.0 - metallic);
+        float3 diffuse_ambient = kD_ambient * albedo * lights.ambient_color_intensity.rgb * lights.ambient_color_intensity.a;
+
+        // Fake environment reflection for metals
+        float3 R = reflect(-V, N);
+        float sky_factor = R.y * 0.5 + 0.5;
+        float3 sky_color = float3(0.6, 0.7, 0.9);
+        float3 ground_color = float3(0.2, 0.15, 0.1);
+        float3 env_color = mix(ground_color, sky_color, sky_factor);
+        float env_mip = roughness * roughness;
+        env_color = mix(env_color, float3(0.3, 0.35, 0.4), env_mip);
+        float3 specular_ambient = F_ambient * env_color * (1.0 - roughness * 0.5);
+
+        ambient = (diffuse_ambient + specular_ambient) * ao;
+    }
 
     // Final color
     float3 color = ambient + Lo + emissive;

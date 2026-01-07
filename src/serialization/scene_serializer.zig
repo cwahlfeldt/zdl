@@ -1,4 +1,5 @@
 const std = @import("std");
+const flecs = @import("zflecs");
 const math = @import("../math/math.zig");
 const Vec3 = math.Vec3;
 const Quat = math.Quat;
@@ -18,7 +19,7 @@ const AssetManager = @import("../assets/asset_manager.zig").AssetManager;
 pub const SerializedScene = struct {
     version: []const u8 = "1.0.0",
     name: []const u8 = "",
-    active_camera_id: ?u32 = null,
+    active_camera_id: ?u64 = null,
     entities: []SerializedEntity = &.{},
 
     pub fn deinit(self: *SerializedScene, allocator: std.mem.Allocator) void {
@@ -36,9 +37,9 @@ pub const SerializedScene = struct {
 
 /// Serialized representation of an entity
 pub const SerializedEntity = struct {
-    id: u32,
+    id: u64,
     name: []const u8 = "",
-    parent_id: ?u32 = null,
+    parent_id: ?u64 = null,
 
     // Components (optional)
     transform: ?SerializedTransform = null,
@@ -153,17 +154,59 @@ pub const SceneSerializer = struct {
             entities.deinit();
         }
 
-        // Serialize all root entities and their children recursively
-        for (scene.root_entities.items) |root_entity| {
-            if (scene.entityExists(root_entity)) {
-                try self.serializeEntityRecursive(scene, root_entity, null, &entities);
+        var entity_ids = std.AutoHashMap(u64, void).init(self.allocator);
+        defer entity_ids.deinit();
+
+        var to_process = std.ArrayList(u64).init(self.allocator);
+        defer to_process.deinit();
+
+        try collectEntitiesWithComponent(scene, TransformComponent, &entity_ids, &to_process);
+        try collectEntitiesWithComponent(scene, CameraComponent, &entity_ids, &to_process);
+        try collectEntitiesWithComponent(scene, MeshRendererComponent, &entity_ids, &to_process);
+        try collectEntitiesWithComponent(scene, LightComponent, &entity_ids, &to_process);
+        try collectEntitiesWithComponent(scene, FpvCameraController, &entity_ids, &to_process);
+
+        if (scene.active_camera.isValid()) {
+            try addEntityId(@intCast(scene.active_camera.id), &entity_ids, &to_process);
+        }
+
+        // Ensure parent chains are included so hierarchy links are preserved.
+        var index: usize = 0;
+        while (index < to_process.items.len) : (index += 1) {
+            const current = Entity{ .id = @intCast(to_process.items[index]) };
+            var parent = scene.getParent(current);
+            while (parent.isValid()) {
+                try addEntityId(@intCast(parent.id), &entity_ids, &to_process);
+                parent = scene.getParent(parent);
             }
         }
 
+        var sorted_ids = std.ArrayList(u64).init(self.allocator);
+        defer sorted_ids.deinit();
+
+        var it = entity_ids.iterator();
+        while (it.next()) |entry| {
+            try sorted_ids.append(entry.key_ptr.*);
+        }
+        std.sort.sort(u64, sorted_ids.items, {}, std.sort.asc(u64));
+
+        for (sorted_ids.items) |entity_id| {
+            const entity = Entity{ .id = @intCast(entity_id) };
+            var parent_id: ?u64 = null;
+            const parent = scene.getParent(entity);
+            if (parent.isValid()) {
+                const pid: u64 = @intCast(parent.id);
+                if (entity_ids.contains(pid)) {
+                    parent_id = pid;
+                }
+            }
+            try self.serializeEntity(scene, entity, parent_id, &entities);
+        }
+
         // Find active camera ID
-        var active_camera_id: ?u32 = null;
+        var active_camera_id: ?u64 = null;
         if (scene.active_camera.isValid()) {
-            active_camera_id = scene.active_camera.index;
+            active_camera_id = @intCast(scene.active_camera.id);
         }
 
         return SerializedScene{
@@ -174,15 +217,15 @@ pub const SceneSerializer = struct {
         };
     }
 
-    fn serializeEntityRecursive(
+    fn serializeEntity(
         self: *Self,
         scene: *Scene,
         entity: Entity,
-        parent_id: ?u32,
+        parent_id: ?u64,
         entities: *std.ArrayList(SerializedEntity),
     ) !void {
         var serialized = SerializedEntity{
-            .id = entity.index,
+            .id = @intCast(entity.id),
             .parent_id = parent_id,
         };
 
@@ -258,19 +301,6 @@ pub const SceneSerializer = struct {
         }
 
         try entities.append(serialized);
-
-        // Serialize children recursively
-        if (scene.getComponent(TransformComponent, entity)) |transform| {
-            var child = transform.first_child;
-            while (child.isValid()) {
-                try self.serializeEntityRecursive(scene, child, entity.index, entities);
-                if (scene.getComponent(TransformComponent, child)) |child_transform| {
-                    child = child_transform.next_sibling;
-                } else {
-                    break;
-                }
-            }
-        }
     }
 
     fn toJsonString(self: *Self, scene: SerializedScene) ![]const u8 {
@@ -416,12 +446,12 @@ pub const SceneSerializer = struct {
         }
 
         // Map from serialized ID -> new Entity
-        var entity_map = std.AutoHashMap(u32, Entity).init(self.allocator);
+        var entity_map = std.AutoHashMap(u64, Entity).init(self.allocator);
         defer entity_map.deinit();
 
         // First pass: create all entities
         for (data.entities) |serialized| {
-            const entity = try scene.createEntity();
+            const entity = scene.createEntity();
             try entity_map.put(serialized.id, entity);
         }
 
@@ -438,18 +468,13 @@ pub const SceneSerializer = struct {
                         .scale = Vec3.init(t.scale[0], t.scale[1], t.scale[2]),
                     },
                     .world_matrix = math.Mat4.identity(),
-                    .world_dirty = true,
-                    .parent = Entity.invalid,
-                    .first_child = Entity.invalid,
-                    .next_sibling = Entity.invalid,
-                    .prev_sibling = Entity.invalid,
                 };
-                try scene.addComponent(entity, transform);
+                scene.addComponent(entity, transform);
             }
 
             // Add CameraComponent
             if (serialized.camera) |c| {
-                try scene.addComponent(entity, CameraComponent{
+                scene.addComponent(entity, CameraComponent{
                     .fov = c.fov,
                     .near = c.near,
                     .far = c.far,
@@ -471,7 +496,7 @@ pub const SceneSerializer = struct {
                             }
                         }
 
-                        try scene.addComponent(entity, component);
+                        scene.addComponent(entity, component);
                     }
                 }
             }
@@ -486,7 +511,7 @@ pub const SceneSerializer = struct {
                 else
                     .directional;
 
-                try scene.addComponent(entity, LightComponent{
+                scene.addComponent(entity, LightComponent{
                     .light_type = light_type,
                     .color = Vec3.init(l.color[0], l.color[1], l.color[2]),
                     .intensity = l.intensity,
@@ -498,7 +523,7 @@ pub const SceneSerializer = struct {
 
             // Add FpvCameraController
             if (serialized.fps_controller) |fps| {
-                try scene.addComponent(entity, FpvCameraController{
+                scene.addComponent(entity, FpvCameraController{
                     .yaw = fps.yaw,
                     .pitch = fps.pitch,
                     .sensitivity = fps.sensitivity,
@@ -548,7 +573,7 @@ pub const SceneSerializer = struct {
 
         // Parse active_camera_id
         if (obj.get("active_camera_id")) |cam| {
-            if (cam == .integer) {
+            if (cam == .integer and cam.integer >= 0) {
                 result.active_camera_id = @intCast(cam.integer);
             }
         }
@@ -584,14 +609,14 @@ pub const SceneSerializer = struct {
 
         // Parse ID
         if (obj.get("id")) |id_val| {
-            if (id_val == .integer) {
+            if (id_val == .integer and id_val.integer >= 0) {
                 result.id = @intCast(id_val.integer);
             }
         }
 
         // Parse parent_id
         if (obj.get("parent_id")) |parent_val| {
-            if (parent_val == .integer) {
+            if (parent_val == .integer and parent_val.integer >= 0) {
                 result.parent_id = @intCast(parent_val.integer);
             }
         }
@@ -742,6 +767,37 @@ pub const SceneSerializer = struct {
 
         return result;
     }
+
+    fn addEntityId(
+        id: u64,
+        entity_ids: *std.AutoHashMap(u64, void),
+        to_process: *std.ArrayList(u64),
+    ) !void {
+        if (!entity_ids.contains(id)) {
+            try entity_ids.put(id, {});
+            try to_process.append(id);
+        }
+    }
+
+    fn collectEntitiesWithComponent(
+        scene: *Scene,
+        comptime T: type,
+        entity_ids: *std.AutoHashMap(u64, void),
+        to_process: *std.ArrayList(u64),
+    ) !void {
+        var query_desc: flecs.query_desc_t = std.mem.zeroes(flecs.query_desc_t);
+        query_desc.terms[0] = .{ .id = flecs.id(T) };
+
+        const query = try flecs.query_init(scene.world, &query_desc);
+        defer flecs.query_fini(query);
+
+        var it = flecs.query_iter(scene.world, query);
+        while (flecs.query_next(&it)) {
+            for (it.entities()) |entity_id| {
+                try addEntityId(@intCast(entity_id), entity_ids, to_process);
+            }
+        }
+    }
 };
 
 fn parseFloat(value: std.json.Value) f32 {
@@ -771,9 +827,9 @@ test "serialize scene with entity" {
     var scene = Scene.init(std.testing.allocator);
     defer scene.deinit();
 
-    const entity = try scene.createEntity();
-    try scene.addComponent(entity, TransformComponent.withPosition(Vec3.init(1, 2, 3)));
-    try scene.addComponent(entity, CameraComponent.init());
+    const entity = scene.createEntity();
+    scene.addComponent(entity, TransformComponent.withPosition(Vec3.init(1, 2, 3)));
+    scene.addComponent(entity, CameraComponent.init());
 
     const json = try serializer.serializeToJson(&scene);
     defer std.testing.allocator.free(json);
@@ -789,13 +845,13 @@ test "roundtrip serialization" {
     var scene = Scene.init(std.testing.allocator);
     defer scene.deinit();
 
-    const camera = try scene.createEntity();
-    try scene.addComponent(camera, TransformComponent.withPosition(Vec3.init(0, 5, 10)));
-    try scene.addComponent(camera, CameraComponent.initWithSettings(std.math.pi / 3.0, 0.5, 500.0));
+    const camera = scene.createEntity();
+    scene.addComponent(camera, TransformComponent.withPosition(Vec3.init(0, 5, 10)));
+    scene.addComponent(camera, CameraComponent.initWithSettings(std.math.pi / 3.0, 0.5, 500.0));
     scene.setActiveCamera(camera);
 
-    const cube = try scene.createEntity();
-    try scene.addComponent(cube, TransformComponent.withPosition(Vec3.init(1, 2, 3)));
+    const cube = scene.createEntity();
+    scene.addComponent(cube, TransformComponent.withPosition(Vec3.init(1, 2, 3)));
 
     // Serialize to JSON
     const json = try serializer.serializeToJson(&scene);

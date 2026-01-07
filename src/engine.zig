@@ -11,6 +11,7 @@ pub const Color = @import("engine/engine.zig").Color;
 pub const Input = @import("input/input.zig").Input;
 pub const MouseButton = @import("input/input.zig").MouseButton;
 pub const InputDevice = @import("input/input.zig").InputDevice;
+pub const Scancode = @import("input/input.zig").Scancode;
 
 // Gamepad
 pub const Gamepad = @import("input/input.zig").Gamepad;
@@ -38,11 +39,18 @@ pub const LightUniforms = @import("gpu/uniforms.zig").LightUniforms;
 
 // Resources
 pub const Texture = @import("resources/texture.zig").Texture;
+pub const Cubemap = @import("resources/cubemap.zig").Cubemap;
+pub const CubeFace = @import("resources/cubemap.zig").CubeFace;
 
 // Materials (PBR)
 pub const Material = @import("resources/material.zig").Material;
 pub const MaterialUniforms = @import("resources/material.zig").MaterialUniforms;
 pub const AlphaMode = @import("resources/material.zig").AlphaMode;
+
+// IBL (Image-Based Lighting)
+pub const ibl = @import("ibl/ibl.zig");
+pub const BrdfLut = ibl.BrdfLut;
+pub const EnvironmentMap = ibl.EnvironmentMap;
 
 // Asset Management
 pub const AssetManager = @import("assets/asset_manager.zig").AssetManager;

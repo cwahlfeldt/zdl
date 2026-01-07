@@ -172,60 +172,50 @@ pub const AlphaMode = enum {
 /// - float/int is 4-byte aligned
 /// - Arrays have elements aligned to 16 bytes
 pub const MaterialUniforms = extern struct {
-    // Block 0: Base color (16 bytes, offset 0)
+    // Block 0: Base color (RGBA)
     base_color: [4]f32,
 
-    // Block 1: Metallic, roughness, normal scale, ao strength (16 bytes, offset 16)
-    metallic: f32,
-    roughness: f32,
-    normal_scale: f32,
-    ao_strength: f32,
+    // Block 1: Metallic, roughness, normal scale, ao strength
+    metallic_roughness_normal_ao: [4]f32,
 
-    // Block 2: Emissive RGB + alpha cutoff (16 bytes, offset 32)
-    // In std140, vec3 followed by float packs into 16 bytes
-    emissive: [3]f32,
-    alpha_cutoff: f32,
+    // Block 2: Emissive RGB + alpha cutoff
+    emissive_alpha: [4]f32,
 
-    // Block 3: UV scale and offset (16 bytes, offset 48)
-    uv_scale: [2]f32,
-    uv_offset: [2]f32,
+    // Block 3: UV scale (xy) and offset (zw)
+    uv_transform: [4]f32,
 
-    // Block 4: Texture flags (16 bytes, offset 64)
-    has_base_color_texture: u32,
-    has_normal_texture: u32,
-    has_metallic_roughness_texture: u32,
-    has_ao_texture: u32,
+    // Block 4: Texture flags (base, normal, metallic-roughness, ao)
+    texture_flags: [4]u32,
 
-    // Block 5: Additional flags (16 bytes, offset 80)
-    has_emissive_texture: u32,
-    alpha_mode: u32, // 0 = opaque, 1 = mask, 2 = blend
-    _pad: [2]u32 = .{ 0, 0 },
+    // Block 5: Additional flags (emissive, alpha_mode, pad, pad)
+    extra_flags: [4]u32 = .{ 0, 0, 0, 0 },
 
     /// Create GPU uniforms from a Material.
     pub fn fromMaterial(mat: Material) MaterialUniforms {
         return .{
             .base_color = .{ mat.base_color.x, mat.base_color.y, mat.base_color.z, mat.base_color.w },
-            .metallic = mat.metallic,
-            .roughness = mat.roughness,
-            .normal_scale = mat.normal_scale,
-            .ao_strength = mat.ao_strength,
-            .emissive = .{ mat.emissive.x, mat.emissive.y, mat.emissive.z },
-            .alpha_cutoff = mat.alpha_cutoff,
-            .uv_scale = .{ mat.uv_scale.x, mat.uv_scale.y },
-            .uv_offset = .{ mat.uv_offset.x, mat.uv_offset.y },
-            .has_base_color_texture = if (mat.base_color_texture != null) 1 else 0,
-            .has_normal_texture = if (mat.normal_texture != null) 1 else 0,
-            .has_metallic_roughness_texture = if (mat.metallic_roughness_texture != null) 1 else 0,
-            .has_ao_texture = if (mat.ao_texture != null) 1 else 0,
-            .has_emissive_texture = if (mat.emissive_texture != null) 1 else 0,
-            .alpha_mode = @intFromEnum(mat.alpha_mode),
+            .metallic_roughness_normal_ao = .{ mat.metallic, mat.roughness, mat.normal_scale, mat.ao_strength },
+            .emissive_alpha = .{ mat.emissive.x, mat.emissive.y, mat.emissive.z, mat.alpha_cutoff },
+            .uv_transform = .{ mat.uv_scale.x, mat.uv_scale.y, mat.uv_offset.x, mat.uv_offset.y },
+            .texture_flags = .{
+                if (mat.base_color_texture != null) 1 else 0,
+                if (mat.normal_texture != null) 1 else 0,
+                if (mat.metallic_roughness_texture != null) 1 else 0,
+                if (mat.ao_texture != null) 1 else 0,
+            },
+            .extra_flags = .{
+                if (mat.emissive_texture != null) 1 else 0,
+                @intFromEnum(mat.alpha_mode),
+                0,
+                0,
+            },
         };
     }
 };
 
 // Compile-time size verification
 comptime {
-    // MaterialUniforms should be 96 bytes (6 * 16 for std140 alignment)
+    // MaterialUniforms should be 96 bytes (6 * 16 for std140/Metal alignment)
     std.debug.assert(@sizeOf(MaterialUniforms) == 96);
 }
 

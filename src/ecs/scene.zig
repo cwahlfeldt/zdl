@@ -30,16 +30,21 @@ pub const Scene = struct {
     /// Currently active camera entity
     active_camera: Entity,
 
+    /// Transform update system entity
+    transform_system: ecs.entity_t,
+
     pub fn init(allocator: std.mem.Allocator) Scene {
         const world = ecs.init();
 
-        // Register all component types
+        // Register all component types and systems
         registerComponents(world);
+        const transform_system = registerSystems(world);
 
         return .{
             .allocator = allocator,
             .world = world,
             .active_camera = Entity.invalid,
+            .transform_system = transform_system,
         };
     }
 
@@ -164,42 +169,8 @@ pub const Scene = struct {
     /// Update all world transforms in the hierarchy.
     /// Call this once per frame before rendering.
     pub fn updateWorldTransforms(self: *Scene) void {
-        // Flecs will handle this via a system, but for now we can do it manually
-        // Query all root entities (those without parents) and update recursively
-        var query_desc: ecs.query_desc_t = std.mem.zeroes(ecs.query_desc_t);
-        query_desc.terms[0] = .{ .id = ecs.id(TransformComponent) };
-        query_desc.terms[1] = .{
-            .id = ecs.pair(ecs.ChildOf, ecs.Wildcard),
-            .oper = .Not, // Entities WITHOUT parents
-        };
-
-        const query = ecs.query_init(self.world, &query_desc) catch return;
-        defer ecs.query_fini(query);
-
-        var it = ecs.query_iter(self.world, query);
-        while (ecs.query_next(&it)) {
-            var i: usize = 0;
-            while (i < it.count()) : (i += 1) {
-                const entity_id = it.entities()[i];
-                self.updateEntityWorldTransform(.{ .id = entity_id }, Mat4.identity());
-            }
-        }
-    }
-
-    fn updateEntityWorldTransform(self: *Scene, entity: Entity, parent_world: Mat4) void {
-        if (self.getComponent(TransformComponent, entity)) |transform| {
-            // Compute world matrix
-            const local_matrix = transform.local.getMatrix();
-            transform.world_matrix = parent_world.mul(local_matrix);
-
-            // Recursively update children
-            const children = self.getChildren(entity, self.allocator) catch return;
-            defer self.allocator.free(children);
-
-            for (children) |child| {
-                self.updateEntityWorldTransform(child, transform.world_matrix);
-            }
-        }
+        // Run the Flecs pipeline so the transform cascade system updates world matrices.
+        _ = ecs.progress(self.world, 0);
     }
 
     /// Get the world matrix for an entity (must call updateWorldTransforms first).
@@ -316,6 +287,30 @@ fn registerComponents(world: *ecs.world_t) void {
     ecs.COMPONENT(world, FpvCameraController);
     ecs.COMPONENT(world, ScriptComponent);
     ecs.COMPONENT(world, AnimatorComponent);
+}
+
+fn updateWorldTransformsSystem(it: *ecs.iter_t, transforms: []TransformComponent) void {
+    const world = it.world;
+    for (transforms, it.entities()) |*transform, entity_id| {
+        const local_matrix = transform.local.getMatrix();
+        const parent_id = ecs.get_target(world, entity_id, ecs.ChildOf, 0);
+        if (parent_id != 0) {
+            if (ecs.get(world, parent_id, TransformComponent)) |parent_transform| {
+                transform.world_matrix = parent_transform.world_matrix.mul(local_matrix);
+            } else {
+                transform.world_matrix = local_matrix;
+            }
+        } else {
+            transform.world_matrix = local_matrix;
+        }
+    }
+}
+
+fn registerSystems(world: *ecs.world_t) ecs.entity_t {
+    var desc = ecs.SYSTEM_DESC(updateWorldTransformsSystem);
+    desc.query.terms[0].src.id = @intCast(ecs.Self | ecs.Cascade);
+    desc.query.terms[0].trav = ecs.ChildOf;
+    return ecs.SYSTEM(world, "TransformWorldUpdate", ecs.OnUpdate, &desc);
 }
 
 test "scene entity creation" {

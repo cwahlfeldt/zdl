@@ -15,6 +15,8 @@ const CameraComponent = @import("../../ecs/components/camera_component.zig").Cam
 const MeshRendererComponent = @import("../../ecs/components/mesh_renderer.zig").MeshRendererComponent;
 const Vec3 = @import("../../math/vec3.zig").Vec3;
 const Quat = @import("../../math/quat.zig").Quat;
+const Vec4 = @import("../../math/vec4.zig").Vec4;
+const Material = @import("../../resources/material.zig").Material;
 
 /// Import a glTF scene into an ECS Scene
 /// Returns array of root entities (caller owns slice)
@@ -161,12 +163,56 @@ fn addMeshRenderer(
 
     var renderer = MeshRendererComponent.init(mesh);
 
-    // Set texture from material
+    // Apply glTF material (PBR) and textures if available.
     const mesh_data = asset.meshes[mesh_idx];
     if (prim_idx < mesh_data.primitives.len) {
         const primitive = mesh_data.primitives[prim_idx];
         if (primitive.material) |mat_idx| {
-            if (texture_import.getMaterialBaseColorTexture(asset, mat_idx)) |texture| {
+            if (mat_idx < asset.materials.len) {
+                const mat_data = asset.materials[mat_idx];
+                var mat = Material.init();
+                mat.base_color = Vec4.init(
+                    mat_data.base_color_factor[0],
+                    mat_data.base_color_factor[1],
+                    mat_data.base_color_factor[2],
+                    mat_data.base_color_factor[3],
+                );
+                mat.metallic = mat_data.metallic_factor;
+                mat.roughness = mat_data.roughness_factor;
+                mat.normal_scale = mat_data.normal_scale;
+                mat.ao_strength = mat_data.occlusion_strength;
+                mat.emissive = Vec3.init(
+                    mat_data.emissive_factor[0],
+                    mat_data.emissive_factor[1],
+                    mat_data.emissive_factor[2],
+                );
+                mat.alpha_cutoff = mat_data.alpha_cutoff;
+                mat.alpha_mode = switch (mat_data.alpha_mode) {
+                    .@"opaque" => .@"opaque",
+                    .mask => .mask,
+                    .blend => .blend,
+                };
+                mat.double_sided = mat_data.double_sided;
+
+                if (texture_import.getMaterialBaseColorTexture(asset, mat_idx)) |texture| {
+                    mat.base_color_texture = texture;
+                    renderer.texture = texture;
+                }
+                if (texture_import.getMaterialMetallicRoughnessTexture(asset, mat_idx)) |texture| {
+                    mat.metallic_roughness_texture = texture;
+                }
+                if (texture_import.getMaterialNormalTexture(asset, mat_idx)) |texture| {
+                    mat.normal_texture = texture;
+                }
+                if (texture_import.getMaterialOcclusionTexture(asset, mat_idx)) |texture| {
+                    mat.ao_texture = texture;
+                }
+                if (texture_import.getMaterialEmissiveTexture(asset, mat_idx)) |texture| {
+                    mat.emissive_texture = texture;
+                }
+
+                renderer.material = mat;
+            } else if (texture_import.getMaterialBaseColorTexture(asset, mat_idx)) |texture| {
                 renderer.texture = texture;
             }
         }

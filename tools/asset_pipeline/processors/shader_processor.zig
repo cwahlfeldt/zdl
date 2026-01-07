@@ -72,6 +72,16 @@ pub const ShaderProcessor = struct {
     ) ProcessResult {
         // Determine shader stage from extension
         const ext = std.fs.path.extension(input_path);
+        if (std.mem.eql(u8, ext, ".metal") and config.platform == .desktop_macos) {
+            return .{
+                .success = true,
+                .output_paths = &.{},
+                .output_hash = null,
+                .error_message = null,
+                .warnings = &.{},
+                .processing_time_ns = 0,
+            };
+        }
         const stage = getShaderStage(ext) orelse {
             return ProcessResult.fail("Unknown shader extension");
         };

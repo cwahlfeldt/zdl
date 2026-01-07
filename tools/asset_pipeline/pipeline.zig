@@ -24,6 +24,15 @@ pub const Pipeline = struct {
 
     const Self = @This();
 
+    fn freeProcessResultOutputs(allocator: Allocator, result: ProcessResult) void {
+        for (result.output_paths) |path| {
+            allocator.free(path);
+        }
+        if (result.output_paths.len > 0) {
+            allocator.free(result.output_paths);
+        }
+    }
+
     pub fn init(allocator: Allocator, config: PipelineConfig) !Self {
         var database = try AssetDatabase.init(
             allocator,
@@ -102,7 +111,10 @@ pub const Pipeline = struct {
         const duration_ns: u64 = @intCast(end - start);
 
         if (result.success) {
-            const output_hash = hash.hashFile(full_output) catch 0;
+            const output_hash = if (result.output_paths.len > 0)
+                hash.hashFile(full_output) catch 0
+            else
+                0;
             try self.database.markProcessed(asset_path, result.output_paths, output_hash);
 
             if (self.config.verbose) {
@@ -170,6 +182,7 @@ pub const Pipeline = struct {
                 });
                 continue;
             };
+            defer freeProcessResultOutputs(self.allocator, proc_result);
 
             if (proc_result.success) {
                 result.processed += 1;

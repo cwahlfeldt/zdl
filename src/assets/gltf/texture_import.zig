@@ -123,3 +123,43 @@ pub fn getMaterialBaseColorTexture(asset: *const GLTFAsset, material_index: usiz
 
     return getGPUTexture(asset, tex_info.index);
 }
+
+/// Get the metallic-roughness texture for a material (if any)
+pub fn getMaterialMetallicRoughnessTexture(asset: *const GLTFAsset, material_index: usize) ?*Texture {
+    if (material_index >= asset.materials.len) return null;
+
+    const material = asset.materials[material_index];
+    const tex_info = material.metallic_roughness_texture orelse return null;
+
+    return getGPUTexture(asset, tex_info.index);
+}
+
+/// Get the normal texture for a material (if any)
+pub fn getMaterialNormalTexture(asset: *const GLTFAsset, material_index: usize) ?*Texture {
+    if (material_index >= asset.materials.len) return null;
+
+    const material = asset.materials[material_index];
+    const tex_info = material.normal_texture orelse return null;
+
+    return getGPUTexture(asset, tex_info.index);
+}
+
+/// Get the occlusion texture for a material (if any)
+pub fn getMaterialOcclusionTexture(asset: *const GLTFAsset, material_index: usize) ?*Texture {
+    if (material_index >= asset.materials.len) return null;
+
+    const material = asset.materials[material_index];
+    const tex_info = material.occlusion_texture orelse return null;
+
+    return getGPUTexture(asset, tex_info.index);
+}
+
+/// Get the emissive texture for a material (if any)
+pub fn getMaterialEmissiveTexture(asset: *const GLTFAsset, material_index: usize) ?*Texture {
+    if (material_index >= asset.materials.len) return null;
+
+    const material = asset.materials[material_index];
+    const tex_info = material.emissive_texture orelse return null;
+
+    return getGPUTexture(asset, tex_info.index);
+}

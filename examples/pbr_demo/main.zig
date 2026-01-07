@@ -4,12 +4,14 @@ const Engine = engine.Engine;
 const Scene = engine.Scene;
 const Entity = engine.Entity;
 const Input = engine.Input;
+const Scancode = engine.Scancode;
 const Vec3 = engine.Vec3;
 const TransformComponent = engine.TransformComponent;
 const CameraComponent = engine.CameraComponent;
 const MeshRendererComponent = engine.MeshRendererComponent;
 const LightComponent = engine.LightComponent;
 const FpvCameraController = engine.FpvCameraController;
+const AssetManager = engine.AssetManager;
 const Material = engine.Material;
 const primitives = engine.primitives;
 const Mesh = engine.Mesh;
@@ -19,6 +21,8 @@ var sphere_mesh: Mesh = undefined;
 var plane_mesh: Mesh = undefined;
 var rotation: f32 = 0;
 var point_light_entity: Entity = Entity.invalid;
+var ibl_enabled: bool = true;
+var env_intensity: f32 = 1.0;
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -38,12 +42,31 @@ pub fn main() !void {
     try eng.initPBR();
     std.debug.print("PBR rendering initialized: {}\n", .{eng.hasPBR()});
 
-    // Set up ambient lighting for better PBR visibility
+    // Initialize IBL (Image-Based Lighting)
+    std.debug.print("Generating BRDF LUT...\n", .{});
+    try eng.initIBL();
+    std.debug.print("IBL initialized: {}\n", .{eng.hasIBL()});
+
+    // Load HDR environment map
+    std.debug.print("Loading HDR environment map...\n", .{});
+    const hdr_path = "/Users/chriswahlfeldt/code/zdl/assets/textures/kloppenheim_06_1k.hdr";
+    if (eng.loadHDREnvironment(hdr_path)) |_| {
+        std.debug.print("HDR environment loaded successfully!\n", .{});
+    } else |err| {
+        std.debug.print("Warning: Failed to load HDR environment: {}\n", .{err});
+        std.debug.print("Falling back to default neutral environment\n", .{});
+    }
+
+    // Set up ambient lighting for fallback (when IBL is disabled)
     eng.light_uniforms.setAmbient(Vec3.init(0.15, 0.15, 0.2), 1.0);
 
     // Create scene
     var scene = Scene.init(allocator);
     defer scene.deinit();
+
+    // Create asset manager
+    var asset_manager = AssetManager.init(allocator, &eng.device);
+    defer asset_manager.deinit();
 
     // Create meshes
     sphere_mesh = try primitives.createSphere(allocator, 24);
@@ -152,6 +175,27 @@ pub fn main() !void {
     const floor_mat = Material.dielectric(0.3, 0.3, 0.35, 0.8);
     scene.addComponent(floor_entity, MeshRendererComponent.withMaterial(&plane_mesh, floor_mat));
 
+    // Load a textured glTF model and promote its textures to PBR materials.
+    std.debug.print("Loading textured glTF model...\n", .{});
+    const glb_path = "assets/models/DamagedHelmet.glb";
+    const imported_entities = asset_manager.importGLTFScene(glb_path, &scene, null) catch |err| {
+        std.debug.print("Failed to load glTF: {}\n", .{err});
+        return err;
+    };
+    defer allocator.free(imported_entities);
+
+    std.debug.print("Loaded glTF with {} root entities\n", .{imported_entities.len});
+    for (imported_entities) |entity| {
+        if (scene.getComponent(TransformComponent, entity)) |transform| {
+            transform.setPosition(Vec3.init(8, -1, 0));
+            transform.setScale(Vec3.init(2, 2, 2));
+        }
+    }
+
+    var material_ctx: u8 = 0;
+    scene.iterateMeshRenderers(applyPbrMaterialToTexturedMeshes, &material_ctx);
+    logMaterialStats(&scene);
+
     // Create directional light (sun) - pointing straight down for clear top lighting
     const sun_entity = scene.createEntity();
     var sun_transform = TransformComponent.init();
@@ -177,11 +221,13 @@ pub fn main() !void {
     // Bright orange point light
     scene.addComponent(point_light3, LightComponent.point(Vec3.init(1.0, 0.5, 0.2), 20.0, 25.0));
 
-    std.debug.print("\nPBR Demo initialized!\n", .{});
+    std.debug.print("\n=== PBR + IBL Demo ===\n", .{});
     std.debug.print("Scene shows {d}x{d} sphere grid with varying metallic/roughness\n", .{ grid_size, grid_size });
     std.debug.print("\nControls:\n", .{});
     std.debug.print("  WASD/Arrow Keys - Move camera\n", .{});
     std.debug.print("  Q/E - Move camera up/down\n", .{});
+    std.debug.print("  I - Toggle IBL (Image-Based Lighting) on/off\n", .{});
+    std.debug.print("  [ / ] - Decrease/Increase IBL intensity\n", .{});
     std.debug.print("  F3 - Toggle FPS counter\n", .{});
     std.debug.print("  ESC - Quit\n", .{});
     std.debug.print("\nSphere Grid:\n", .{});
@@ -190,6 +236,7 @@ pub fn main() !void {
     std.debug.print("\nSide Spheres:\n", .{});
     std.debug.print("  Left: Gold, Silver, Copper (metals)\n", .{});
     std.debug.print("  Right: Blue plastic, Emissive orange\n", .{});
+    std.debug.print("\nIBL Status: ENABLED (intensity: {d:.2})\n", .{env_intensity});
 
     // Run game loop with scene
     try eng.runScene(&scene, update);
@@ -207,6 +254,25 @@ fn update(eng: *Engine, scene: *Scene, input: *Input, delta_time: f32) !void {
         }
     }
 
+    // IBL controls
+    if (input.isKeyJustPressed(Scancode.i)) {
+        ibl_enabled = !ibl_enabled;
+        eng.light_uniforms.setIBLEnabled(ibl_enabled);
+        std.debug.print("IBL: {s} (intensity: {d:.2})\n", .{ if (ibl_enabled) "ENABLED" else "DISABLED", env_intensity });
+    }
+
+    // IBL intensity controls
+    if (input.isKeyDown(Scancode.left_bracket)) {
+        env_intensity = @max(0.0, env_intensity - delta_time * 0.5);
+        eng.light_uniforms.setIBLParams(env_intensity, 4.0);
+        std.debug.print("IBL intensity: {d:.2}\n", .{env_intensity});
+    }
+    if (input.isKeyDown(Scancode.right_bracket)) {
+        env_intensity = @min(3.0, env_intensity + delta_time * 0.5);
+        eng.light_uniforms.setIBLParams(env_intensity, 4.0);
+        std.debug.print("IBL intensity: {d:.2}\n", .{env_intensity});
+    }
+
     // Animate point light
     rotation += delta_time;
     if (scene.getComponent(TransformComponent, point_light_entity)) |light_transform| {
@@ -216,5 +282,67 @@ fn update(eng: *Engine, scene: *Scene, input: *Input, delta_time: f32) !void {
             3.0 + @sin(rotation * 2.0),
             @sin(rotation) * radius + 5.0,
         ));
+    }
+}
+
+fn applyPbrMaterialToTexturedMeshes(
+    entity: Entity,
+    transform: *TransformComponent,
+    renderer: *MeshRendererComponent,
+    userdata: *anyopaque,
+) void {
+    _ = entity;
+    _ = transform;
+    _ = userdata;
+    if (renderer.material == null and renderer.texture != null) {
+        var mat = Material.init();
+        mat.base_color_texture = renderer.texture.?;
+        renderer.material = mat;
+    }
+}
+
+const MaterialStats = struct {
+    total: u32 = 0,
+    with_material: u32 = 0,
+    with_base_color: u32 = 0,
+    with_mr: u32 = 0,
+    with_normal: u32 = 0,
+    sample_printed: bool = false,
+};
+
+fn logMaterialStats(scene: *Scene) void {
+    var stats = MaterialStats{};
+    scene.iterateMeshRenderers(collectMaterialStats, &stats);
+    std.debug.print(
+        "PBR material stats: total={d} with_material={d} base_color_tex={d} mr_tex={d} normal_tex={d}\n",
+        .{ stats.total, stats.with_material, stats.with_base_color, stats.with_mr, stats.with_normal },
+    );
+}
+
+fn collectMaterialStats(
+    entity: Entity,
+    transform: *TransformComponent,
+    renderer: *MeshRendererComponent,
+    userdata: *anyopaque,
+) void {
+    _ = entity;
+    _ = transform;
+    const stats: *MaterialStats = @ptrCast(@alignCast(userdata));
+    stats.total += 1;
+
+    if (renderer.material) |mat| {
+        stats.with_material += 1;
+        if (mat.base_color_texture != null) stats.with_base_color += 1;
+        if (mat.metallic_roughness_texture != null) stats.with_mr += 1;
+        if (mat.normal_texture != null) stats.with_normal += 1;
+
+        if (!stats.sample_printed and mat.base_color_texture != null and renderer.mesh.vertices.len > 0) {
+            stats.sample_printed = true;
+            const v0 = renderer.mesh.vertices[0];
+            std.debug.print(
+                "Sample mesh vertex: uv=({d:.3},{d:.3}) normal=({d:.3},{d:.3},{d:.3}) color=({d:.3},{d:.3},{d:.3},{d:.3})\n",
+                .{ v0.u, v0.v, v0.nx, v0.ny, v0.nz, v0.r, v0.g, v0.b, v0.a },
+            );
+        }
     }
 }
