@@ -88,9 +88,9 @@ pub fn main() !void {
     // Helmets
     const glb_path = "assets/models/DamagedHelmet.glb";
     try addHelmetVariant(&scene, &asset_manager, allocator, glb_path, Vec3.init(-6.0, 0.0, 0.0), 0.35, 2.2, .matte);
-    // try addHelmetVariant(&scene, &asset_manager, allocator, glb_path, Vec3.init(-2.0, 0.0, 0.0), 0.25, 2.2, .hero);
-    // try addHelmetVariant(&scene, &asset_manager, allocator, glb_path, Vec3.init(2.0, 0.0, 0.0), -0.25, 2.2, .chrome);
-    // try addHelmetVariant(&scene, &asset_manager, allocator, glb_path, Vec3.init(6.0, 0.0, 0.0), -0.35, 2.2, .unlit);
+    try addHelmetVariant(&scene, &asset_manager, allocator, glb_path, Vec3.init(-2.0, 0.0, 0.0), 0.25, 2.2, .hero);
+    try addHelmetVariant(&scene, &asset_manager, allocator, glb_path, Vec3.init(2.0, 0.0, 0.0), -0.25, 2.2, .chrome);
+    try addHelmetVariant(&scene, &asset_manager, allocator, glb_path, Vec3.init(6.0, 0.0, 0.0), -0.35, 2.2, .unlit);
 
     std.debug.print("\n=== Damaged Helmet Showcase ===\n", .{});
     std.debug.print("1) Matte PBR  2) Hero PBR  3) Chrome PBR  4) Unlit Albedo\n", .{});
