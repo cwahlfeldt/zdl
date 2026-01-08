@@ -18,6 +18,9 @@ const engine_api = @import("bindings/engine_api.zig");
 const input_api = @import("bindings/input_api.zig");
 const scene_api = @import("bindings/scene_api.zig");
 const transform_api = @import("bindings/transform_api.zig");
+const component_api = @import("bindings/component_api.zig");
+const query_api = @import("bindings/query_api.zig");
+const world_api = @import("bindings/world_api.zig");
 
 /// System that manages JavaScript scripting.
 /// Initializes the JS runtime, registers bindings, and updates scripts each frame.
@@ -35,6 +38,9 @@ pub const ScriptSystem = struct {
 
     /// Scripts pending load
     pending_loads: std.ArrayList(Entity),
+
+    /// Whether world init systems have run
+    systems_initialized: bool,
 
     const Self = @This();
 
@@ -70,6 +76,12 @@ pub const ScriptSystem = struct {
         try scene_api.register(context);
         std.debug.print("[ScriptSystem] Registering transform API...\n", .{});
         try transform_api.register(context);
+        std.debug.print("[ScriptSystem] Registering component API...\n", .{});
+        try component_api.register(context);
+        std.debug.print("[ScriptSystem] Registering world API...\n", .{});
+        try world_api.register(context);
+        std.debug.print("[ScriptSystem] Registering query API...\n", .{});
+        try query_api.register(context);
         std.debug.print("[ScriptSystem] All APIs registered\n", .{});
 
         return .{
@@ -80,6 +92,7 @@ pub const ScriptSystem = struct {
             .reload_check_interval = 1.0,
             .reload_check_timer = 0,
             .pending_loads = .{},
+            .systems_initialized = false,
         };
     }
 
@@ -181,6 +194,25 @@ pub const ScriptSystem = struct {
         // Process scene requests (entity creation/destruction)
         self.processSceneRequests(scene);
 
+        // Process component operations from JavaScript (registers types)
+        component_api.processQueue(self.context, scene);
+
+        // Process world entity creation requests
+        world_api.processCreateEntityRequests(self.context, scene);
+        component_api.processComponentRequests(self.context, scene);
+
+        // Refresh native query cache for requested queries
+        query_api.processNativeCache(self.context, scene, self.allocator);
+
+        // Run world init systems once
+        if (!self.systems_initialized) {
+            world_api.runSystems(self.context, "init");
+            self.systems_initialized = true;
+        }
+
+        // Run world update systems every frame
+        world_api.runSystems(self.context, "update");
+
         // Hot reload check
         self.reload_check_timer += delta_time;
         if (self.reload_check_timer >= self.reload_check_interval) {
@@ -225,6 +257,7 @@ pub const ScriptSystem = struct {
 
     /// Call onDestroy for all scripts (when shutting down).
     pub fn shutdown(self: *Self, scene: *Scene) void {
+        world_api.runSystems(self.context, "destroy");
         scene.iterateScripts(shutdownScriptCallback, self);
     }
 };

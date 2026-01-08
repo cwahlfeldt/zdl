@@ -15,6 +15,8 @@ const FpvCameraController = components.FpvCameraController;
 
 // Scripting component
 pub const ScriptComponent = @import("../scripting/script_component.zig").ScriptComponent;
+const JsComponentStorage = @import("../scripting/js_component_storage.zig").JsComponentStorage;
+const ComponentSchema = @import("../scripting/js_component_storage.zig").ComponentSchema;
 
 // Animation component
 pub const AnimatorComponent = @import("../animation/animator_component.zig").AnimatorComponent;
@@ -33,6 +35,9 @@ pub const Scene = struct {
     /// Transform update system entity
     transform_system: ecs.entity_t,
 
+    /// JavaScript-defined component storage
+    js_components: JsComponentStorage,
+
     pub fn init(allocator: std.mem.Allocator) Scene {
         const world = ecs.init();
 
@@ -45,10 +50,12 @@ pub const Scene = struct {
             .world = world,
             .active_camera = Entity.invalid,
             .transform_system = transform_system,
+            .js_components = JsComponentStorage.init(allocator),
         };
     }
 
     pub fn deinit(self: *Scene) void {
+        self.js_components.deinit();
         _ = ecs.fini(self.world);
     }
 
@@ -67,6 +74,7 @@ pub const Scene = struct {
     /// Destroy an entity and all its components.
     pub fn destroyEntity(self: *Scene, entity: Entity) void {
         if (!entity.isValid()) return;
+        self.js_components.removeEntity(entity);
         ecs.delete(self.world, entity.id);
     }
 
@@ -102,6 +110,42 @@ pub const Scene = struct {
     /// Check if an entity has a specific component.
     pub fn hasComponent(self: *const Scene, comptime T: type, entity: Entity) bool {
         return ecs.has_id(self.world, entity.id, ecs.id(T));
+    }
+
+    // ==================== JavaScript Components ====================
+
+    pub fn registerJsComponent(self: *Scene, type_name: []const u8, schema_json: []const u8, is_tag: bool) !void {
+        try self.js_components.registerType(type_name, schema_json, is_tag);
+    }
+
+    pub fn addJsComponent(self: *Scene, entity: Entity, type_name: []const u8, data_json: []const u8) !void {
+        if (!self.entityExists(entity)) return error.InvalidEntity;
+        try self.js_components.addComponent(entity, type_name, data_json);
+    }
+
+    pub fn updateJsComponent(self: *Scene, entity: Entity, type_name: []const u8, data_json: []const u8) !void {
+        if (!self.entityExists(entity)) return error.InvalidEntity;
+        try self.js_components.updateComponent(entity, type_name, data_json);
+    }
+
+    pub fn removeJsComponent(self: *Scene, entity: Entity, type_name: []const u8) void {
+        self.js_components.removeComponent(entity, type_name);
+    }
+
+    pub fn hasJsComponent(self: *const Scene, entity: Entity, type_name: []const u8) bool {
+        return self.js_components.hasComponent(entity, type_name);
+    }
+
+    pub fn getJsComponent(self: *const Scene, entity: Entity, type_name: []const u8) ?[]const u8 {
+        return self.js_components.getComponent(entity, type_name);
+    }
+
+    pub fn getJsComponentSchema(self: *const Scene, type_name: []const u8) ?ComponentSchema {
+        return self.js_components.getSchema(type_name);
+    }
+
+    pub fn queryJsComponents(self: *const Scene, allocator: std.mem.Allocator, type_names: []const []const u8) ![]Entity {
+        return self.js_components.query(allocator, type_names);
     }
 
     // ==================== Hierarchy Management ====================

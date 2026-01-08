@@ -33,6 +33,8 @@ pub fn build(b: *std.Build) void {
     engine_module.addImport("quickjs", quickjs.module("quickjs"));
     engine_module.addImport("zflecs", zflecs.module("root"));
     engine_module.linkLibrary(zflecs.artifact("flecs"));
+    engine_module.addIncludePath(quickjs.path("."));
+
 
     // Build Asset Pipeline tool
     const zdl_assets = b.addExecutable(.{
@@ -303,7 +305,7 @@ pub fn build(b: *std.Build) void {
     // Tests
     const engine_tests = b.addTest(.{
         .root_module = b.createModule(.{
-            .root_source_file = b.path("src/engine.zig"),
+            .root_source_file = b.path("src/tests.zig"),
             .target = target,
             .optimize = optimize,
         }),
@@ -312,8 +314,10 @@ pub fn build(b: *std.Build) void {
     engine_tests.root_module.addImport("quickjs", quickjs.module("quickjs"));
     engine_tests.root_module.addImport("zflecs", zflecs.module("root"));
     engine_tests.root_module.linkLibrary(zflecs.artifact("flecs"));
+    engine_tests.linkLibC();
+    engine_tests.root_module.addIncludePath(quickjs.path("."));
 
     const run_tests = b.addRunArtifact(engine_tests);
-    const test_step = b.step("test", "Run engine unit tests");
+    const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_tests.step);
 }
