@@ -111,3 +111,15 @@ pub const Rect = ui.Rect;
 pub const scripting = @import("scripting/scripting.zig");
 pub const ScriptComponent = scripting.ScriptComponent;
 pub const ScriptSystem = scripting.ScriptSystem;
+pub const JSRuntime = scripting.JSRuntime;
+pub const JSContext = scripting.JSContext;
+pub const ModuleLoader = scripting.ModuleLoader;
+pub const evalWithImportSupport = scripting.evalWithImportSupport;
+pub const evalFile = scripting.evalFile;
+
+// Scripting bindings
+pub const console_api = @import("scripting/bindings/console_api.zig");
+pub const zdl_api = @import("scripting/bindings/zdl_api.zig");
+pub const world_api = @import("scripting/bindings/world_api.zig");
+pub const component_api = @import("scripting/bindings/component_api.zig");
+pub const query_api = @import("scripting/bindings/query_api.zig");

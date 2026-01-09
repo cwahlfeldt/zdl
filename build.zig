@@ -56,6 +56,26 @@ pub fn build(b: *std.Build) void {
     const assets_step = b.step("assets", "Run asset pipeline tool");
     assets_step.dependOn(&run_assets.step);
 
+    // Build ZDL CLI tool
+    const zdl_cli = b.addExecutable(.{
+        .name = "zdl",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tools/zdl-cli/main.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    b.installArtifact(zdl_cli);
+
+    // Run CLI tool step
+    const run_cli = b.addRunArtifact(zdl_cli);
+    run_cli.step.dependOn(b.getInstallStep());
+    if (b.args) |args| {
+        run_cli.addArgs(args);
+    }
+    const cli_step = b.step("zdl", "Run ZDL CLI tool");
+    cli_step.dependOn(&run_cli.step);
+
     // Build Cube3D example
     const cube3d = b.addExecutable(.{
         .name = "cube3d",
@@ -232,6 +252,28 @@ pub fn build(b: *std.Build) void {
     const run_helmet_showcase_step = b.step("run-helmet-showcase", "Run Damaged Helmet showcase example");
     run_helmet_showcase_step.dependOn(&run_helmet_showcase.step);
 
+    // Build Helmet Cube Click example
+    const helmet_cube_click = b.addExecutable(.{
+        .name = "helmet_cube_click",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("examples/helmet_cube_click/main.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    helmet_cube_click.root_module.addImport("sdl3", sdl3.module("sdl3"));
+    helmet_cube_click.root_module.addImport("engine", engine_module);
+    b.installArtifact(helmet_cube_click);
+
+    // Helmet Cube Click run step
+    const run_helmet_cube_click = b.addRunArtifact(helmet_cube_click);
+    run_helmet_cube_click.step.dependOn(b.getInstallStep());
+    if (b.args) |args| {
+        run_helmet_cube_click.addArgs(args);
+    }
+    const run_helmet_cube_click_step = b.step("run-helmet-cube-click", "Run helmet cube click example");
+    run_helmet_cube_click_step.dependOn(&run_helmet_cube_click.step);
+
     // Build Raymarch PBR Demo example
     const raymarch_pbr = b.addExecutable(.{
         .name = "raymarch_pbr",
@@ -297,6 +339,51 @@ pub fn build(b: *std.Build) void {
     }
     const run_scripting_step = b.step("run-scripting", "Run Scripting Demo example");
     run_scripting_step.dependOn(&run_scripting_demo.step);
+
+    // Build Module Demo example
+    const module_demo = b.addExecutable(.{
+        .name = "module_demo",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("examples/module_demo/main.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    module_demo.root_module.addImport("sdl3", sdl3.module("sdl3"));
+    module_demo.root_module.addImport("engine", engine_module);
+    b.installArtifact(module_demo);
+
+    // Module Demo run step
+    const run_module_demo = b.addRunArtifact(module_demo);
+    run_module_demo.step.dependOn(b.getInstallStep());
+    if (b.args) |args| {
+        run_module_demo.addArgs(args);
+    }
+
+    // Build Window from JS example
+    const window_js_example = b.addExecutable(.{
+        .name = "window_js_example",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("examples/window_from_js_example.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    window_js_example.root_module.addImport("sdl3", sdl3.module("sdl3"));
+    window_js_example.root_module.addImport("engine", engine_module);
+    b.installArtifact(window_js_example);
+
+    // Window from JS example run step
+    const run_window_js = b.addRunArtifact(window_js_example);
+    run_window_js.step.dependOn(b.getInstallStep());
+    if (b.args) |args| {
+        run_window_js.addArgs(args);
+    }
+    const run_module_step = b.step("run-module", "Run Module Demo example");
+    run_module_step.dependOn(&run_module_demo.step);
+
+    const run_window_js_step = b.step("run-window-js", "Run Window from JS example");
+    run_window_js_step.dependOn(&run_window_js.step);
 
     // Note: Shader compilation is handled by the asset pipeline tool (zdl-assets)
     // Run: zig build assets -- build --source=src/shaders --output=src/shaders

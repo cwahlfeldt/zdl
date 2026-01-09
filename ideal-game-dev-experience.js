@@ -32,7 +32,7 @@ const Position = (x = 0, y = 0, z = 0) => ({
   position: { x, y, z },
 });
 
-const Camera = ({ fov = 60, near = 0.1, far = 1000, active = true } = {}) => ({
+const Camera = ({ fov = 60, near = 0.1, far = 1000, active = true }) => ({
   type: "Camera",
   fov,
   near,

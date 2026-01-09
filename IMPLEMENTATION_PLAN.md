@@ -937,31 +937,55 @@ function mySystem(world) {
 
 ### New Files to Create
 
-| Path                                       | Purpose                                  | Status |
-| ------------------------------------------ | ---------------------------------------- | ------ |
-| `src/scripting/bindings/zdl_api.zig`       | ZDL module binding                       | Pending |
-| `src/scripting/bindings/world_api.zig`     | World creation and methods               | Done |
-| `src/scripting/bindings/component_api.zig` | Component CRUD operations                | Done |
-| `src/scripting/bindings/query_api.zig`     | Query execution                          | Done |
-| `src/scripting/bindings/system_api.zig`    | System registration                      | Pending |
-| `src/scripting/js_component_storage.zig`   | JSON component storage                   | Done |
-| `src/scripting/system_registry.zig`        | JS system management                     | Pending |
-| `src/scripting/module_loader.zig`          | ES module loading                        | Pending |
-| `src/tests.zig`                            | Test entry point for scripting bindings  | Done |
-| `tools/zdl-cli/main.zig`                   | CLI entry point                          | Pending |
-| `tools/zdl-cli/commands/create.zig`        | Create command                           | Pending |
-| `tools/zdl-cli/commands/run.zig`           | Run command                              | Pending |
-| `tools/zdl-cli/commands/build.zig`         | Build command                            | Pending |
+| Path                                       | Purpose                                 | Status  |
+| ------------------------------------------ | --------------------------------------- | ------- |
+| `src/scripting/bindings/zdl_api.zig`       | ZDL module binding                      | Done    |
+| `src/scripting/bindings/world_api.zig`     | World creation and methods              | Done    |
+| `src/scripting/bindings/component_api.zig` | Component CRUD operations               | Done    |
+| `src/scripting/bindings/query_api.zig`     | Query execution                         | Done    |
+| `src/scripting/bindings/system_api.zig`    | System registration                     | Pending |
+| `src/scripting/js_component_storage.zig`   | JSON component storage                  | Done    |
+| `src/scripting/system_registry.zig`        | JS system management                    | Pending |
+| `src/scripting/module_loader.zig`          | ES module loading                       | Done    |
+| `src/tests.zig`                            | Test entry point for scripting bindings | Done    |
+| `tools/zdl-cli/main.zig`                   | CLI entry point                         | Done    |
+| `tools/zdl-cli/commands/create.zig`        | Create command                          | Done    |
+| `tools/zdl-cli/commands/run.zig`           | Run command                             | Done    |
+| `tools/zdl-cli/commands/build.zig`         | Build command                           | Pending |
 
 ### Files to Modify
 
-| Path                                  | Changes                                   | Status |
-| ------------------------------------- | ----------------------------------------- | ------ |
-| `src/scripting/bindings/bindings.zig` | Register new APIs                         | Pending |
+| Path                                  | Changes                                   | Status                               |
+| ------------------------------------- | ----------------------------------------- | ------------------------------------ |
+| `src/scripting/bindings/bindings.zig` | Register new APIs                         | Done (zdl_api registered)            |
 | `src/scripting/script_system.zig`     | Integrate system registry, module loader  | In progress (world systems + queues) |
-| `src/engine/engine.zig`               | Add `runJsGameLoop()`, system phase calls | Pending |
-| `src/ecs/scene.zig`                   | Add JS component storage integration      | Done |
-| `build.zig`                           | Add CLI executable                        | Pending (tests added) |
+| `src/engine/engine.zig`               | Add `runJsGameLoop()`, system phase calls | Pending                              |
+| `src/ecs/scene.zig`                   | Add JS component storage integration      | Done                                 |
+| `build.zig`                           | Add CLI executable                        | Done (zdl CLI tool added)            |
+
+---
+
+## Known Limitations & Future Work
+
+### Window Creation
+
+**Current Status**: The `zdl.createWindow()` function currently returns a configuration object but does not actually create a window. The engine window is created at initialization time via `Engine.init(config)`.
+
+**Why**: The current engine architecture assumes a single window created at startup. Implementing dynamic window creation from JavaScript requires architectural changes.
+
+**Future Implementation**:
+1. Refactor `Engine` to support lazy window initialization
+2. Pass engine context to JavaScript bindings (via opaque pointers or global registry)
+3. Implement actual window creation/reconfiguration in `zdl_api.zig`:
+   ```zig
+   pub fn registerWithEngine(ctx: *JSContext, engine: *Engine) !void {
+       // Store engine reference in JS context
+       // Implement actual window manipulation
+   }
+   ```
+4. Update `zdl.createWindow()` to call native window creation via QuickJS C function
+
+**Workaround**: For now, configure the window via `EngineConfig` when initializing the engine in Zig, before running JavaScript code.
 
 ---
 

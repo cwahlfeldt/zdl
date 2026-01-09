@@ -5,82 +5,28 @@ const JSContext = @import("../js_context.zig").JSContext;
 
 /// Register console.log, console.warn, console.error on the global object.
 pub fn register(ctx: *JSContext) !void {
+    // Ultra-simple console - only handles first argument
     const console_code =
         \\var console = {
-        \\    _inFormat: false,
-        \\    _formatArgs: function(args) {
-        \\        if (this._inFormat) return '[recursive]';
-        \\        this._inFormat = true;
-        \\        try {
-        \\            var result = [];
-        \\            for (var i = 0; i < args.length; i++) {
-        \\                var arg = args[i];
-        \\                try {
-        \\                    if (arg === null) {
-        \\                        result.push('null');
-        \\                    } else if (arg === undefined) {
-        \\                        result.push('undefined');
-        \\                    } else if (typeof arg === 'string') {
-        \\                        result.push(arg);
-        \\                    } else if (typeof arg === 'number' || typeof arg === 'boolean') {
-        \\                        result.push('' + arg);
-        \\                    } else {
-        \\                        result.push('[object]');
-        \\                    }
-        \\                } catch (e) {
-        \\                    result.push('[error]');
-        \\                }
-        \\            }
-        \\            return result.join(' ');
-        \\        } finally {
-        \\            this._inFormat = false;
-        \\        }
-        \\    },
         \\    log: function() {
-        \\        // Disabled to prevent stack overflow
+        \\        if (arguments.length > 0) __zdl_print(arguments[0]);
         \\    },
         \\    warn: function() {
-        \\        // Disabled to prevent stack overflow
+        \\        if (arguments.length > 0) __zdl_print(arguments[0]);
         \\    },
         \\    error: function() {
-        \\        // Disabled to prevent stack overflow
+        \\        if (arguments.length > 0) __zdl_print(arguments[0]);
         \\    },
         \\    info: function() {
-        \\        __native_console_log(this._formatArgs(arguments));
+        \\        if (arguments.length > 0) __zdl_print(arguments[0]);
         \\    },
         \\    debug: function() {
-        \\        __native_console_log(this._formatArgs(arguments));
+        \\        if (arguments.length > 0) __zdl_print(arguments[0]);
         \\    }
         \\};
         \\true;
     ;
 
-    // Register the native print functions
-    // Since zig-quickjs doesn't support JS_NewCFunction directly,
-    // we use a simple approach: register a global function that writes to stdout
-    const native_funcs =
-        \\function __native_console_log(msg) {
-        \\    // This is a placeholder - the actual implementation will use
-        \\    // std.debug.print on the Zig side via the script system
-        \\    if (typeof __zdl_print === 'function') {
-        \\        __zdl_print('[LOG] ' + msg);
-        \\    }
-        \\}
-        \\function __native_console_warn(msg) {
-        \\    if (typeof __zdl_print === 'function') {
-        \\        __zdl_print('[WARN] ' + msg);
-        \\    }
-        \\}
-        \\function __native_console_error(msg) {
-        \\    if (typeof __zdl_print === 'function') {
-        \\        __zdl_print('[ERROR] ' + msg);
-        \\    }
-        \\}
-        \\true;
-    ;
-
-    const native_result = try ctx.eval(native_funcs, "<console>");
-    ctx.freeValue(native_result);
     const console_result = try ctx.eval(console_code, "<console>");
     ctx.freeValue(console_result);
 }
@@ -89,14 +35,20 @@ pub fn register(ctx: *JSContext) !void {
 /// This should be called after registering the console API.
 pub fn installPrintFunction(ctx: *JSContext) !void {
     // Create a simple print function that stores messages to be processed
+    // Use array indexing instead of push() to avoid toString() calls
     const print_func =
         \\var __zdl_messages = [];
+        \\var __zdl_messages_count = 0;
         \\function __zdl_print(msg) {
-        \\    __zdl_messages.push(msg);
+        \\    __zdl_messages[__zdl_messages_count++] = msg;
         \\}
         \\function __zdl_flush_messages() {
-        \\    var msgs = __zdl_messages;
+        \\    var msgs = [];
+        \\    for (var i = 0; i < __zdl_messages_count; i++) {
+        \\        msgs[i] = __zdl_messages[i];
+        \\    }
         \\    __zdl_messages = [];
+        \\    __zdl_messages_count = 0;
         \\    return msgs;
         \\}
         \\true;

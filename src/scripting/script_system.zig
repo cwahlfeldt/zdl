@@ -21,6 +21,7 @@ const transform_api = @import("bindings/transform_api.zig");
 const component_api = @import("bindings/component_api.zig");
 const query_api = @import("bindings/query_api.zig");
 const world_api = @import("bindings/world_api.zig");
+const zdl_api = @import("bindings/zdl_api.zig");
 
 /// System that manages JavaScript scripting.
 /// Initializes the JS runtime, registers bindings, and updates scripts each frame.
@@ -78,6 +79,8 @@ pub const ScriptSystem = struct {
         try transform_api.register(context);
         std.debug.print("[ScriptSystem] Registering component API...\n", .{});
         try component_api.register(context);
+        std.debug.print("[ScriptSystem] Registering zdl API...\n", .{});
+        try zdl_api.register(context);
         std.debug.print("[ScriptSystem] Registering world API...\n", .{});
         try world_api.register(context);
         std.debug.print("[ScriptSystem] Registering query API...\n", .{});
