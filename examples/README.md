@@ -131,7 +131,7 @@ pub fn main() !void {
     // Create cube entity
     const cube = try scene.createEntity();
     try scene.addComponent(cube, TransformComponent.init());
-    try scene.addComponent(cube, MeshRendererComponent.init(&cube_mesh));
+    try scene.addComponent(cube, MeshRendererComponent.fromMeshPtr(&cube_mesh));
 
     try eng.runScene(&scene, update);
 }

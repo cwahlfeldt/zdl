@@ -55,14 +55,14 @@ pub fn main() !void {
     var cube_transform = TransformComponent.withPosition(Vec3.init(0, 0, 0));
     cube_transform.setScale(Vec3.init(2, 2, 2));
     scene.addComponent(cube_entity, cube_transform);
-    scene.addComponent(cube_entity, MeshRendererComponent.init(&cube_mesh));
+    scene.addComponent(cube_entity, MeshRendererComponent.fromMeshPtr(&cube_mesh));
 
     // Create plane entity
     const plane_entity = scene.createEntity();
     var plane_transform = TransformComponent.withPosition(Vec3.init(0, -2, 0));
     plane_transform.setScale(Vec3.init(10, 1, 10));
     scene.addComponent(plane_entity, plane_transform);
-    scene.addComponent(plane_entity, MeshRendererComponent.init(&plane_mesh));
+    scene.addComponent(plane_entity, MeshRendererComponent.fromMeshPtr(&plane_mesh));
 
     std.debug.print("3D Cube Demo initialized!\n", .{});
     std.debug.print("Controls:\n", .{});

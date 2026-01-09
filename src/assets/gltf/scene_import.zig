@@ -161,7 +161,8 @@ fn addMeshRenderer(
 ) !void {
     const mesh = mesh_import.getGPUMesh(asset, mesh_idx, prim_idx) orelse return;
 
-    var renderer = MeshRendererComponent.init(mesh);
+    // Use legacy pointer-based API for glTF imports (glTF asset owns the mesh data)
+    var renderer = MeshRendererComponent.fromMeshPtr(mesh);
 
     // Apply glTF material (PBR) and textures if available.
     const mesh_data = asset.meshes[mesh_idx];
@@ -196,7 +197,7 @@ fn addMeshRenderer(
 
                 if (texture_import.getMaterialBaseColorTexture(asset, mat_idx)) |texture| {
                     mat.base_color_texture = texture;
-                    renderer.texture = texture;
+                    renderer.setTexture(texture);
                 }
                 if (texture_import.getMaterialMetallicRoughnessTexture(asset, mat_idx)) |texture| {
                     mat.metallic_roughness_texture = texture;
@@ -213,7 +214,7 @@ fn addMeshRenderer(
 
                 renderer.material = mat;
             } else if (texture_import.getMaterialBaseColorTexture(asset, mat_idx)) |texture| {
-                renderer.texture = texture;
+                renderer.setTexture(texture);
             }
         }
     }

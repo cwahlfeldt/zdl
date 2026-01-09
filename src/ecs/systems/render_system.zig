@@ -96,6 +96,9 @@ pub const RenderSystem = struct {
 
         if (!renderer.enabled) return;
 
+        // Get the mesh from cached pointer (set by legacy API or resolved from handle)
+        const mesh = renderer.getMesh() orelse return;
+
         // Decide which pipeline to use
         const use_pbr = ctx.has_pbr and renderer.hasMaterial();
 
@@ -108,7 +111,7 @@ pub const RenderSystem = struct {
 
             var material = renderer.material.?;
             if (material.base_color_texture == null) {
-                if (renderer.texture) |tex| {
+                if (renderer.getTexture()) |tex| {
                     material.base_color_texture = tex;
                 }
             }
@@ -131,7 +134,7 @@ pub const RenderSystem = struct {
             ctx.frame.bindIBLTextures();
 
             // Draw mesh
-            ctx.frame.drawMesh(renderer.mesh.*);
+            ctx.frame.drawMesh(mesh.*);
         } else {
             // Legacy rendering path
             if (ctx.current_pipeline_is_pbr != false) {
@@ -140,7 +143,7 @@ pub const RenderSystem = struct {
             }
 
             // Bind texture
-            if (renderer.texture) |tex| {
+            if (renderer.getTexture()) |tex| {
                 ctx.frame.bindTexture(tex.*);
             } else {
                 ctx.frame.bindDefaultTexture();
@@ -151,7 +154,7 @@ pub const RenderSystem = struct {
             ctx.frame.pushUniforms(uniforms);
 
             // Draw mesh
-            ctx.frame.drawMesh(renderer.mesh.*);
+            ctx.frame.drawMesh(mesh.*);
         }
     }
 

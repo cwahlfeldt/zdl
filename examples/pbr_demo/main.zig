@@ -122,7 +122,7 @@ pub fn main() !void {
             material.metallic = metallic;
             material.roughness = roughness;
 
-            scene.addComponent(sphere_entity, MeshRendererComponent.withMaterial(&sphere_mesh, material));
+            scene.addComponent(sphere_entity, MeshRendererComponent.fromMeshPtrWithMaterial(&sphere_mesh, material));
         }
     }
 
@@ -132,7 +132,7 @@ pub fn main() !void {
         const gold_entity = scene.createEntity();
         scene.addComponent(gold_entity, TransformComponent.withPosition(Vec3.init(-6, 2, 0)));
         const gold_mat = Material.metal(1.0, 0.766, 0.336, 0.3);
-        scene.addComponent(gold_entity, MeshRendererComponent.withMaterial(&sphere_mesh, gold_mat));
+        scene.addComponent(gold_entity, MeshRendererComponent.fromMeshPtrWithMaterial(&sphere_mesh, gold_mat));
     }
 
     {
@@ -140,7 +140,7 @@ pub fn main() !void {
         const silver_entity = scene.createEntity();
         scene.addComponent(silver_entity, TransformComponent.withPosition(Vec3.init(-6, 5, 0)));
         const silver_mat = Material.metal(0.972, 0.960, 0.915, 0.2);
-        scene.addComponent(silver_entity, MeshRendererComponent.withMaterial(&sphere_mesh, silver_mat));
+        scene.addComponent(silver_entity, MeshRendererComponent.fromMeshPtrWithMaterial(&sphere_mesh, silver_mat));
     }
 
     {
@@ -148,7 +148,7 @@ pub fn main() !void {
         const copper_entity = scene.createEntity();
         scene.addComponent(copper_entity, TransformComponent.withPosition(Vec3.init(-6, 8, 0)));
         const copper_mat = Material.metal(0.955, 0.637, 0.538, 0.4);
-        scene.addComponent(copper_entity, MeshRendererComponent.withMaterial(&sphere_mesh, copper_mat));
+        scene.addComponent(copper_entity, MeshRendererComponent.fromMeshPtrWithMaterial(&sphere_mesh, copper_mat));
     }
 
     {
@@ -156,7 +156,7 @@ pub fn main() !void {
         const plastic_entity = scene.createEntity();
         scene.addComponent(plastic_entity, TransformComponent.withPosition(Vec3.init(6, 2, 0)));
         const plastic_mat = Material.dielectric(0.2, 0.6, 0.9, 0.3);
-        scene.addComponent(plastic_entity, MeshRendererComponent.withMaterial(&sphere_mesh, plastic_mat));
+        scene.addComponent(plastic_entity, MeshRendererComponent.fromMeshPtrWithMaterial(&sphere_mesh, plastic_mat));
     }
 
     {
@@ -164,7 +164,7 @@ pub fn main() !void {
         const emissive_entity = scene.createEntity();
         scene.addComponent(emissive_entity, TransformComponent.withPosition(Vec3.init(6, 5, 0)));
         const emissive_mat = Material.withEmissive(0.1, 0.1, 0.1, 2.0, 1.0, 0.5);
-        scene.addComponent(emissive_entity, MeshRendererComponent.withMaterial(&sphere_mesh, emissive_mat));
+        scene.addComponent(emissive_entity, MeshRendererComponent.fromMeshPtrWithMaterial(&sphere_mesh, emissive_mat));
     }
 
     // Create floor plane
@@ -173,7 +173,7 @@ pub fn main() !void {
     floor_transform.setScale(Vec3.init(20, 1, 20));
     scene.addComponent(floor_entity, floor_transform);
     const floor_mat = Material.dielectric(0.3, 0.3, 0.35, 0.8);
-    scene.addComponent(floor_entity, MeshRendererComponent.withMaterial(&plane_mesh, floor_mat));
+    scene.addComponent(floor_entity, MeshRendererComponent.fromMeshPtrWithMaterial(&plane_mesh, floor_mat));
 
     // Load a textured glTF model and promote its textures to PBR materials.
     std.debug.print("Loading textured glTF model...\n", .{});
@@ -294,9 +294,9 @@ fn applyPbrMaterialToTexturedMeshes(
     _ = entity;
     _ = transform;
     _ = userdata;
-    if (renderer.material == null and renderer.texture != null) {
+    if (renderer.material == null and renderer.getTexture() != null) {
         var mat = Material.init();
-        mat.base_color_texture = renderer.texture.?;
+        mat.base_color_texture = renderer.getTexture();
         renderer.material = mat;
     }
 }
@@ -336,13 +336,17 @@ fn collectMaterialStats(
         if (mat.metallic_roughness_texture != null) stats.with_mr += 1;
         if (mat.normal_texture != null) stats.with_normal += 1;
 
-        if (!stats.sample_printed and mat.base_color_texture != null and renderer.mesh.vertices.len > 0) {
-            stats.sample_printed = true;
-            const v0 = renderer.mesh.vertices[0];
-            std.debug.print(
-                "Sample mesh vertex: uv=({d:.3},{d:.3}) normal=({d:.3},{d:.3},{d:.3}) color=({d:.3},{d:.3},{d:.3},{d:.3})\n",
-                .{ v0.u, v0.v, v0.nx, v0.ny, v0.nz, v0.r, v0.g, v0.b, v0.a },
-            );
+        if (!stats.sample_printed and mat.base_color_texture != null) {
+            if (renderer.getMesh()) |mesh| {
+                if (mesh.vertices.len > 0) {
+                    stats.sample_printed = true;
+                    const v0 = mesh.vertices[0];
+                    std.debug.print(
+                        "Sample mesh vertex: uv=({d:.3},{d:.3}) normal=({d:.3},{d:.3},{d:.3}) color=({d:.3},{d:.3},{d:.3},{d:.3})\n",
+                        .{ v0.u, v0.v, v0.nx, v0.ny, v0.nz, v0.r, v0.g, v0.b, v0.a },
+                    );
+                }
+            }
         }
     }
 }

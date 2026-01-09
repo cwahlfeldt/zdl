@@ -445,8 +445,8 @@ material.metallic = 0.0;     // 0.0 = dielectric, 1.0 = metal
 material.roughness = 0.5;    // 0.0 = smooth, 1.0 = rough
 material.emissive = Vec3.init(0, 0, 0);
 
-// Attach to mesh renderer
-try scene.addComponent(entity, MeshRendererComponent.withMaterial(&mesh, material));
+// Attach to mesh renderer (using legacy pointer API)
+try scene.addComponent(entity, MeshRendererComponent.fromMeshPtrWithMaterial(&mesh, material));
 ```
 
 **Lights** - Multiple light types:

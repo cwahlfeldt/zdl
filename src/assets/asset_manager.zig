@@ -8,19 +8,26 @@ const GLTFLoader = gltf.GLTFLoader;
 const Scene = @import("../ecs/scene.zig").Scene;
 const Entity = @import("../ecs/entity.zig").Entity;
 
-/// Runtime asset manager for loading and caching game assets
-/// Provides a central point for asset lifecycle management and caching
+// Asset handle types
+pub const asset_handle = @import("asset_handle.zig");
+pub const MeshHandle = asset_handle.MeshHandle;
+pub const TextureHandle = asset_handle.TextureHandle;
+const AssetStorage = asset_handle.AssetStorage;
+
+/// Runtime asset manager for loading and caching game assets.
+/// Uses handle-based references for safe asset lifetime management.
+/// Handles use generational indices to detect stale references.
 pub const AssetManager = struct {
     allocator: std.mem.Allocator,
     device: *sdl.gpu.Device,
 
-    /// Cached textures by path
-    textures: std.StringHashMap(*Texture),
+    /// Handle-based mesh storage with generation tracking
+    mesh_storage: AssetStorage(Mesh, MeshHandle),
 
-    /// Cached meshes by path
-    meshes: std.StringHashMap(*Mesh),
+    /// Handle-based texture storage with generation tracking
+    texture_storage: AssetStorage(Texture, TextureHandle),
 
-    /// Cached glTF assets by path
+    /// Cached glTF assets by path (these own their meshes/textures)
     gltf_assets: std.StringHashMap(*GLTFAsset),
 
     /// Base path for asset loading
@@ -33,8 +40,8 @@ pub const AssetManager = struct {
         return .{
             .allocator = allocator,
             .device = device,
-            .textures = std.StringHashMap(*Texture).init(allocator),
-            .meshes = std.StringHashMap(*Mesh).init(allocator),
+            .mesh_storage = AssetStorage(Mesh, MeshHandle).init(allocator),
+            .texture_storage = AssetStorage(Texture, TextureHandle).init(allocator),
             .gltf_assets = std.StringHashMap(*GLTFAsset).init(allocator),
             .base_path = "",
         };
@@ -49,8 +56,8 @@ pub const AssetManager = struct {
         return .{
             .allocator = allocator,
             .device = device,
-            .textures = std.StringHashMap(*Texture).init(allocator),
-            .meshes = std.StringHashMap(*Mesh).init(allocator),
+            .mesh_storage = AssetStorage(Mesh, MeshHandle).init(allocator),
+            .texture_storage = AssetStorage(Texture, TextureHandle).init(allocator),
             .gltf_assets = std.StringHashMap(*GLTFAsset).init(allocator),
             .base_path = try allocator.dupe(u8, base_path),
         };
@@ -58,7 +65,7 @@ pub const AssetManager = struct {
 
     /// Deinitialize and free all cached assets
     pub fn deinit(self: *Self) void {
-        // Free all cached glTF assets
+        // Free all cached glTF assets (these own their mesh/texture data)
         var gltf_it = self.gltf_assets.iterator();
         while (gltf_it.next()) |entry| {
             entry.value_ptr.*.deinit(self.device);
@@ -67,36 +74,117 @@ pub const AssetManager = struct {
         }
         self.gltf_assets.deinit();
 
-        // Free all cached textures
-        // Note: Textures registered from glTF assets are owned by those assets (freed above).
-        // We only free the cache keys here, not the textures themselves.
-        var tex_it = self.textures.iterator();
-        while (tex_it.next()) |entry| {
-            // Don't deinit/destroy - glTF assets own the textures
-            self.allocator.free(entry.key_ptr.*);
+        // Free mesh storage (only free owned meshes - borrowed ones are freed by their owner e.g. GLTFAsset)
+        for (self.mesh_storage.slots.items) |slot| {
+            if (slot.asset) |mesh| {
+                if (slot.owned) {
+                    mesh.deinit(self.device);
+                    self.allocator.destroy(mesh);
+                }
+            }
         }
-        self.textures.deinit();
+        self.mesh_storage.deinit();
 
-        // Free all cached meshes
-        // Note: Meshes registered from glTF assets are owned by those assets (freed above).
-        // We only free the cache keys here, not the meshes themselves.
-        var mesh_it = self.meshes.iterator();
-        while (mesh_it.next()) |entry| {
-            // Don't deinit/destroy - glTF assets own the meshes
-            self.allocator.free(entry.key_ptr.*);
+        // Free texture storage (only free owned textures)
+        for (self.texture_storage.slots.items) |slot| {
+            if (slot.asset) |texture| {
+                if (slot.owned) {
+                    texture.deinit(self.device);
+                    self.allocator.destroy(texture);
+                }
+            }
         }
-        self.meshes.deinit();
+        self.texture_storage.deinit();
 
         if (self.base_path.len > 0) {
             self.allocator.free(self.base_path);
         }
     }
 
+    // ============================================
+    // Mesh Management (Handle-based)
+    // ============================================
+
+    /// Store a mesh and return a handle to it.
+    /// The AssetManager takes ownership of the mesh data.
+    pub fn storeMesh(self: *Self, name: []const u8, mesh: Mesh) !MeshHandle {
+        // Check if already cached by name
+        if (self.mesh_storage.getByName(name)) |existing| {
+            self.mesh_storage.addRef(existing);
+            return existing;
+        }
+
+        // Create heap-allocated mesh
+        const stored = try self.allocator.create(Mesh);
+        errdefer self.allocator.destroy(stored);
+        stored.* = mesh;
+
+        return try self.mesh_storage.insert(stored, name);
+    }
+
+    /// Store a mesh without a name (useful for procedural meshes)
+    pub fn storeMeshAnonymous(self: *Self, mesh: Mesh) !MeshHandle {
+        const stored = try self.allocator.create(Mesh);
+        errdefer self.allocator.destroy(stored);
+        stored.* = mesh;
+
+        return try self.mesh_storage.insert(stored, null);
+    }
+
+    /// Get mesh by handle. Returns null if handle is stale or invalid.
+    pub fn getMesh(self: *Self, handle: MeshHandle) ?*Mesh {
+        return self.mesh_storage.get(handle);
+    }
+
+    /// Get mesh handle by name
+    pub fn getMeshHandle(self: *Self, name: []const u8) ?MeshHandle {
+        return self.mesh_storage.getByName(name);
+    }
+
+    /// Increment reference count for a mesh handle
+    pub fn addMeshRef(self: *Self, handle: MeshHandle) void {
+        self.mesh_storage.addRef(handle);
+    }
+
+    /// Release a mesh handle. Returns true if the mesh was freed.
+    pub fn releaseMesh(self: *Self, handle: MeshHandle) bool {
+        if (self.mesh_storage.release(handle)) {
+            // Refcount hit zero, free the mesh
+            if (self.mesh_storage.get(handle)) |mesh| {
+                mesh.deinit(self.device);
+                self.allocator.destroy(mesh);
+            }
+            self.mesh_storage.remove(handle);
+            return true;
+        }
+        return false;
+    }
+
+    /// Check if a mesh handle is valid
+    pub fn isMeshValid(self: *Self, handle: MeshHandle) bool {
+        return self.mesh_storage.isValidHandle(handle);
+    }
+
+    /// Get the name of a mesh by handle
+    pub fn getMeshName(self: *Self, handle: MeshHandle) ?[]const u8 {
+        return self.mesh_storage.getName(handle);
+    }
+
+    /// Find handle for a mesh pointer (reverse lookup for serialization)
+    pub fn findMeshHandle(self: *Self, mesh: *const Mesh) ?MeshHandle {
+        return self.mesh_storage.findHandle(mesh);
+    }
+
+    // ============================================
+    // Texture Management (Handle-based)
+    // ============================================
+
     /// Load a texture from file, returning cached version if already loaded
-    pub fn loadTexture(self: *Self, path: []const u8) !*Texture {
+    pub fn loadTexture(self: *Self, path: []const u8) !TextureHandle {
         // Check cache first
-        if (self.textures.get(path)) |cached| {
-            return cached;
+        if (self.texture_storage.getByName(path)) |existing| {
+            self.texture_storage.addRef(existing);
+            return existing;
         }
 
         // Build full path
@@ -113,125 +201,128 @@ pub const AssetManager = struct {
         texture.* = try Texture.loadFromFile(self.device, full_path);
         errdefer texture.deinit(self.device);
 
-        // Cache it
-        const key = try self.allocator.dupe(u8, path);
-        errdefer self.allocator.free(key);
-
-        try self.textures.put(key, texture);
-
-        return texture;
+        return try self.texture_storage.insert(texture, path);
     }
 
-    /// Store a mesh in the cache (takes ownership)
-    pub fn storeMesh(self: *Self, name: []const u8, mesh: Mesh) !*Mesh {
-        // Check if already cached
-        if (self.meshes.get(name)) |existing| {
+    /// Store a texture with a name
+    pub fn storeTexture(self: *Self, name: []const u8, texture: Texture) !TextureHandle {
+        // Check if already cached by name
+        if (self.texture_storage.getByName(name)) |existing| {
+            self.texture_storage.addRef(existing);
             return existing;
         }
 
-        // Create heap-allocated mesh
-        const stored = try self.allocator.create(Mesh);
+        const stored = try self.allocator.create(Texture);
         errdefer self.allocator.destroy(stored);
+        stored.* = texture;
 
-        stored.* = mesh;
-
-        // Cache it
-        const key = try self.allocator.dupe(u8, name);
-        errdefer self.allocator.free(key);
-
-        try self.meshes.put(key, stored);
-
-        return stored;
+        return try self.texture_storage.insert(stored, name);
     }
 
-    /// Get a cached mesh by name
-    pub fn getMesh(self: *Self, name: []const u8) ?*Mesh {
-        return self.meshes.get(name);
+    /// Get texture by handle. Returns null if handle is stale or invalid.
+    pub fn getTexture(self: *Self, handle: TextureHandle) ?*Texture {
+        return self.texture_storage.get(handle);
     }
 
-    /// Get a cached texture by path
-    pub fn getTexture(self: *Self, path: []const u8) ?*Texture {
-        return self.textures.get(path);
+    /// Get texture handle by path/name
+    pub fn getTextureHandle(self: *Self, path: []const u8) ?TextureHandle {
+        return self.texture_storage.getByName(path);
+    }
+
+    /// Increment reference count for a texture handle
+    pub fn addTextureRef(self: *Self, handle: TextureHandle) void {
+        self.texture_storage.addRef(handle);
+    }
+
+    /// Release a texture handle. Returns true if the texture was freed.
+    pub fn releaseTexture(self: *Self, handle: TextureHandle) bool {
+        if (self.texture_storage.release(handle)) {
+            if (self.texture_storage.get(handle)) |texture| {
+                texture.deinit(self.device);
+                self.allocator.destroy(texture);
+            }
+            self.texture_storage.remove(handle);
+            return true;
+        }
+        return false;
+    }
+
+    /// Check if a texture handle is valid
+    pub fn isTextureValid(self: *Self, handle: TextureHandle) bool {
+        return self.texture_storage.isValidHandle(handle);
+    }
+
+    /// Get the path/name of a texture by handle
+    pub fn getTexturePath(self: *Self, handle: TextureHandle) ?[]const u8 {
+        return self.texture_storage.getName(handle);
+    }
+
+    /// Find handle for a texture pointer (reverse lookup for serialization)
+    pub fn findTextureHandle(self: *Self, texture: *const Texture) ?TextureHandle {
+        return self.texture_storage.findHandle(texture);
+    }
+
+    // ============================================
+    // Legacy Pointer-based API (for compatibility)
+    // ============================================
+
+    /// Get a cached mesh by name (returns pointer for legacy code)
+    /// DEPRECATED: Use getMeshHandle + getMesh instead
+    pub fn getMeshPtr(self: *Self, name: []const u8) ?*Mesh {
+        if (self.mesh_storage.getByName(name)) |handle| {
+            return self.mesh_storage.get(handle);
+        }
+        return null;
+    }
+
+    /// Get a cached texture by path (returns pointer for legacy code)
+    /// DEPRECATED: Use getTextureHandle + getTexture instead
+    pub fn getTexturePtr(self: *Self, path: []const u8) ?*Texture {
+        if (self.texture_storage.getByName(path)) |handle| {
+            return self.texture_storage.get(handle);
+        }
+        return null;
     }
 
     /// Check if a texture is loaded
     pub fn hasTexture(self: *Self, path: []const u8) bool {
-        return self.textures.contains(path);
+        return self.texture_storage.getByName(path) != null;
     }
 
     /// Check if a mesh is loaded
     pub fn hasMesh(self: *Self, name: []const u8) bool {
-        return self.meshes.contains(name);
-    }
-
-    /// Unload a specific texture
-    pub fn unloadTexture(self: *Self, path: []const u8) void {
-        if (self.textures.fetchRemove(path)) |kv| {
-            kv.value.deinit(self.device);
-            self.allocator.destroy(kv.value);
-            self.allocator.free(kv.key);
-        }
-    }
-
-    /// Unload a specific mesh
-    pub fn unloadMesh(self: *Self, name: []const u8) void {
-        if (self.meshes.fetchRemove(name)) |kv| {
-            kv.value.deinit(self.device);
-            self.allocator.destroy(kv.value);
-            self.allocator.free(kv.key);
-        }
-    }
-
-    /// Unload all cached assets
-    pub fn unloadAll(self: *Self) void {
-        // Unload textures
-        var tex_it = self.textures.iterator();
-        while (tex_it.next()) |entry| {
-            entry.value_ptr.*.deinit(self.device);
-            self.allocator.destroy(entry.value_ptr.*);
-            self.allocator.free(entry.key_ptr.*);
-        }
-        self.textures.clearRetainingCapacity();
-
-        // Unload meshes
-        var mesh_it = self.meshes.iterator();
-        while (mesh_it.next()) |entry| {
-            entry.value_ptr.*.deinit(self.device);
-            self.allocator.destroy(entry.value_ptr.*);
-            self.allocator.free(entry.key_ptr.*);
-        }
-        self.meshes.clearRetainingCapacity();
-    }
-
-    /// Get memory usage statistics
-    pub fn getStats(self: *Self) Stats {
-        return .{
-            .texture_count = @intCast(self.textures.count()),
-            .mesh_count = @intCast(self.meshes.count()),
-            .gltf_count = @intCast(self.gltf_assets.count()),
-        };
+        return self.mesh_storage.getByName(name) != null;
     }
 
     /// Find the name/key for a mesh pointer (reverse lookup for serialization)
+    /// DEPRECATED: Use findMeshHandle + getMeshName instead
     pub fn findMeshName(self: *Self, mesh: *const Mesh) ?[]const u8 {
-        var it = self.meshes.iterator();
-        while (it.next()) |entry| {
-            if (entry.value_ptr.* == mesh) {
-                return entry.key_ptr.*;
-            }
+        if (self.mesh_storage.findHandle(mesh)) |handle| {
+            return self.mesh_storage.getName(handle);
         }
         return null;
     }
 
     /// Find the path/key for a texture pointer (reverse lookup for serialization)
+    /// DEPRECATED: Use findTextureHandle + getTexturePath instead
     pub fn findTexturePath(self: *Self, texture: *const Texture) ?[]const u8 {
-        var it = self.textures.iterator();
-        while (it.next()) |entry| {
-            if (entry.value_ptr.* == texture) {
-                return entry.key_ptr.*;
-            }
+        if (self.texture_storage.findHandle(texture)) |handle| {
+            return self.texture_storage.getName(handle);
         }
         return null;
+    }
+
+    // ============================================
+    // Statistics
+    // ============================================
+
+    /// Get memory usage statistics
+    pub fn getStats(self: *Self) Stats {
+        return .{
+            .texture_count = @intCast(self.texture_storage.count()),
+            .mesh_count = @intCast(self.mesh_storage.count()),
+            .gltf_count = @intCast(self.gltf_assets.count()),
+        };
     }
 
     pub const Stats = struct {
@@ -269,7 +360,7 @@ pub const AssetManager = struct {
         // Upload to GPU
         try loader.uploadToGPU(asset, self.device);
 
-        // Register meshes and textures with this asset manager for serialization
+        // Register meshes and textures with handle storage
         try self.registerGLTFAssets(asset);
 
         // Cache the glTF asset
@@ -306,16 +397,16 @@ pub const AssetManager = struct {
     /// Unload a specific glTF asset
     pub fn unloadGLTF(self: *Self, path: []const u8) void {
         if (self.gltf_assets.fetchRemove(path)) |kv| {
-            // Note: Don't unload individual meshes/textures as other code may reference them
             kv.value.deinit(self.device);
             self.allocator.destroy(kv.value);
             self.allocator.free(kv.key);
         }
     }
 
-    /// Register glTF meshes and textures with this asset manager for serialization support
+    /// Register glTF meshes and textures with handle storage for serialization support.
+    /// These are registered as borrowed (not owned) since the GLTFAsset owns the actual data.
     fn registerGLTFAssets(self: *Self, asset: *GLTFAsset) !void {
-        // Register meshes with qualified names
+        // Register meshes with qualified names (borrowed - GLTFAsset owns them)
         for (asset.meshes, 0..) |mesh_data, mesh_idx| {
             for (mesh_data.primitives, 0..) |_, prim_idx| {
                 const key = gltf.types.MeshPrimitiveKey{
@@ -327,14 +418,13 @@ pub const AssetManager = struct {
                     const name = try asset.getMeshName(mesh_idx, prim_idx);
                     defer self.allocator.free(name);
 
-                    // Store in meshes cache (don't take ownership - glTF asset owns it)
-                    const cache_key = try self.allocator.dupe(u8, name);
-                    try self.meshes.put(cache_key, mesh);
+                    // Register as borrowed - glTF asset owns the actual mesh data
+                    _ = try self.mesh_storage.insertBorrowed(mesh, name);
                 }
             }
         }
 
-        // Register textures with qualified names
+        // Register textures with qualified names (borrowed - GLTFAsset owns them)
         var tex_it = asset.texture_map.iterator();
         while (tex_it.next()) |entry| {
             const tex_idx = entry.key_ptr.*;
@@ -343,9 +433,8 @@ pub const AssetManager = struct {
             const name = try asset.getTextureName(tex_idx);
             defer self.allocator.free(name);
 
-            // Store in textures cache (don't take ownership - glTF asset owns it)
-            const cache_key = try self.allocator.dupe(u8, name);
-            try self.textures.put(cache_key, texture);
+            // Register as borrowed - glTF asset owns the actual texture data
+            _ = try self.texture_storage.insertBorrowed(texture, name);
         }
     }
 };

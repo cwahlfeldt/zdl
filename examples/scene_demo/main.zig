@@ -82,19 +82,19 @@ pub fn main() !void {
     var floor_transform = TransformComponent.withPosition(Vec3.init(0, -10, 0));
     floor_transform.local.scale = Vec3.init(10, 1, 10);
     scene.addComponent(floor, floor_transform);
-    scene.addComponent(floor, MeshRendererComponent.init(&plane_mesh));
+    scene.addComponent(floor, MeshRendererComponent.fromMeshPtr(&plane_mesh));
 
     // Create parent cube
     cube_entity = scene.createEntity();
     var cube_transform = TransformComponent.init();
     cube_transform.local.scale = Vec3.init(2, 2, 2); // Make it bigger
     scene.addComponent(cube_entity, cube_transform);
-    scene.addComponent(cube_entity, MeshRendererComponent.init(&cube_mesh));
+    scene.addComponent(cube_entity, MeshRendererComponent.fromMeshPtr(&cube_mesh));
 
     // Create child cube (orbits around parent)
     child_entity = scene.createEntity();
     scene.addComponent(child_entity, TransformComponent.withPosition(Vec3.init(2.5, 4, 0)));
-    scene.addComponent(child_entity, MeshRendererComponent.init(&cube_mesh));
+    scene.addComponent(child_entity, MeshRendererComponent.fromMeshPtr(&cube_mesh));
 
     // Set parent-child relationship
     scene.setParent(child_entity, cube_entity);

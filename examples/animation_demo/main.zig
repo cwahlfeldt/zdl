@@ -134,7 +134,7 @@ pub fn main() !void {
         var transform = TransformComponent.init();
         transform.setScale(Vec3.init(0.2, 0.2, 0.2));
         scene.addComponent(bone_entities[i], transform);
-        scene.addComponent(bone_entities[i], MeshRendererComponent.init(&cube_mesh));
+        scene.addComponent(bone_entities[i], MeshRendererComponent.fromMeshPtr(&cube_mesh));
     }
 
     std.debug.print("\n=== ZDL Animation Demo ===\n", .{});

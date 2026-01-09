@@ -97,14 +97,14 @@ pub fn main() !void {
     cube_entity = scene.createEntity();
     const cube_transform = TransformComponent.withPosition(Vec3.init(0, 0.5, 0));
     scene.addComponent(cube_entity, cube_transform);
-    scene.addComponent(cube_entity, MeshRendererComponent.init(&cube_mesh));
+    scene.addComponent(cube_entity, MeshRendererComponent.fromMeshPtr(&cube_mesh));
 
     // Create plane entity
     const plane_entity = scene.createEntity();
     var plane_transform = TransformComponent.withPosition(Vec3.init(0, -0.5, 0));
     plane_transform.setScale(Vec3.init(10, 1, 10));
     scene.addComponent(plane_entity, plane_transform);
-    scene.addComponent(plane_entity, MeshRendererComponent.init(&plane_mesh));
+    scene.addComponent(plane_entity, MeshRendererComponent.fromMeshPtr(&plane_mesh));
 
     std.debug.print("\n=== ZDL Debug Demo ===\n", .{});
     std.debug.print("Demonstrating debug and profiling tools.\n\n", .{});

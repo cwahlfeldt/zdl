@@ -152,7 +152,7 @@ fn applyVariantToSubtree(scene: *Scene, allocator: std.mem.Allocator, root: Enti
                 .unlit => {
                     if (renderer.material) |mat| {
                         if (mat.base_color_texture) |tex| {
-                            renderer.texture = tex;
+                            renderer.setTexture(tex);
                         }
                     }
                     renderer.material = null;

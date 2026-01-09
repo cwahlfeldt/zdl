@@ -195,17 +195,17 @@ pub fn main() !void {
     // Create ground plane
     const ground = scene.createEntity();
     scene.addComponent(ground, TransformComponent.withPosition(Vec3.init(0, 0, 0)));
-    scene.addComponent(ground, MeshRendererComponent.init(&plane_mesh));
+    scene.addComponent(ground, MeshRendererComponent.fromMeshPtr(&plane_mesh));
 
     // Create player (cube)
     player_entity = scene.createEntity();
     scene.addComponent(player_entity, TransformComponent.withPosition(player_position));
-    scene.addComponent(player_entity, MeshRendererComponent.init(&cube_mesh));
+    scene.addComponent(player_entity, MeshRendererComponent.fromMeshPtr(&cube_mesh));
 
     // Create stick position indicator (small sphere)
     indicator_entity = scene.createEntity();
     scene.addComponent(indicator_entity, TransformComponent.withPosition(Vec3.init(0, 0.2, 0)));
-    scene.addComponent(indicator_entity, MeshRendererComponent.init(&sphere_mesh));
+    scene.addComponent(indicator_entity, MeshRendererComponent.fromMeshPtr(&sphere_mesh));
 
     // Print instructions
     std.debug.print(

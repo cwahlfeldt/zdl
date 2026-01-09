@@ -92,7 +92,7 @@ pub fn main() !void {
     var plane_transform = TransformComponent.withPosition(Vec3.init(0, -0.5, 0));
     plane_transform.setScale(Vec3.init(20, 1, 20));
     scene.addComponent(plane_entity, plane_transform);
-    scene.addComponent(plane_entity, MeshRendererComponent.init(&plane_mesh));
+    scene.addComponent(plane_entity, MeshRendererComponent.fromMeshPtr(&plane_mesh));
 
     // Load glTF model
     std.debug.print("\n=== ZDL glTF Demo ===\n", .{});

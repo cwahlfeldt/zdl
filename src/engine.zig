@@ -54,6 +54,8 @@ pub const EnvironmentMap = ibl.EnvironmentMap;
 
 // Asset Management
 pub const AssetManager = @import("assets/asset_manager.zig").AssetManager;
+pub const MeshHandle = @import("assets/asset_manager.zig").MeshHandle;
+pub const TextureHandle = @import("assets/asset_manager.zig").TextureHandle;
 pub const gltf = @import("assets/asset_manager.zig").gltf;
 pub const GLTFLoader = gltf.GLTFLoader;
 pub const GLTFAsset = gltf.GLTFAsset;

@@ -90,14 +90,14 @@ pub fn main() !void {
     // Create cube entity
     cube_entity = scene.createEntity();
     scene.addComponent(cube_entity, TransformComponent.withPosition(Vec3.init(0, 0.5, 0)));
-    scene.addComponent(cube_entity, MeshRendererComponent.init(&cube_mesh));
+    scene.addComponent(cube_entity, MeshRendererComponent.fromMeshPtr(&cube_mesh));
 
     // Create ground plane
     const ground_entity = scene.createEntity();
     var ground_transform = TransformComponent.init();
     ground_transform.local.scale = Vec3.init(5, 1, 5);
     scene.addComponent(ground_entity, ground_transform);
-    scene.addComponent(ground_entity, MeshRendererComponent.init(&plane_mesh));
+    scene.addComponent(ground_entity, MeshRendererComponent.fromMeshPtr(&plane_mesh));
 
     std.debug.print("\n=== ZDL UI Demo ===\n", .{});
     std.debug.print("Demonstrating the UI system.\n\n", .{});

@@ -69,14 +69,14 @@ pub fn main() !void {
     var cube_transform = TransformComponent.withPosition(Vec3.init(0, 1, 0));
     cube_transform.setScale(Vec3.init(1.5, 1.5, 1.5));
     scene.addComponent(cube_entity, cube_transform);
-    scene.addComponent(cube_entity, MeshRendererComponent.init(&cube_mesh));
+    scene.addComponent(cube_entity, MeshRendererComponent.fromMeshPtr(&cube_mesh));
     scene.addComponent(cube_entity, ScriptComponent.init("examples/scripting_demo/scripts/rotator.js"));
 
     // Create orbiting sphere entity
     const sphere_entity = scene.createEntity();
     const sphere_transform = TransformComponent.withPosition(Vec3.init(3, 1, 0));
     scene.addComponent(sphere_entity, sphere_transform);
-    scene.addComponent(sphere_entity, MeshRendererComponent.init(&sphere_mesh));
+    scene.addComponent(sphere_entity, MeshRendererComponent.fromMeshPtr(&sphere_mesh));
     scene.addComponent(sphere_entity, ScriptComponent.init("examples/scripting_demo/scripts/orbiter.js"));
 
     // Create floor plane
@@ -84,7 +84,7 @@ pub fn main() !void {
     var plane_transform = TransformComponent.withPosition(Vec3.init(0, -1, 0));
     plane_transform.setScale(Vec3.init(20, 1, 20));
     scene.addComponent(plane_entity, plane_transform);
-    scene.addComponent(plane_entity, MeshRendererComponent.init(&plane_mesh));
+    scene.addComponent(plane_entity, MeshRendererComponent.fromMeshPtr(&plane_mesh));
 
     std.debug.print("\n=== JavaScript Scripting Demo ===\n", .{});
     std.debug.print("This demo showcases JavaScript scripting with hot-reload!\n\n", .{});

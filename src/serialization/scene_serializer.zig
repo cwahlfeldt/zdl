@@ -254,10 +254,12 @@ pub const SceneSerializer = struct {
 
             // Look up asset names via AssetManager if available
             if (self.asset_manager) |am| {
-                if (am.findMeshName(mesh_renderer.mesh)) |name| {
-                    mesh_name = try self.allocator.dupe(u8, name);
+                if (mesh_renderer.getMesh()) |mesh| {
+                    if (am.findMeshName(mesh)) |name| {
+                        mesh_name = try self.allocator.dupe(u8, name);
+                    }
                 }
-                if (mesh_renderer.texture) |tex| {
+                if (mesh_renderer.getTexture()) |tex| {
                     if (am.findTexturePath(tex)) |path| {
                         texture_path = try self.allocator.dupe(u8, path);
                     }
@@ -484,14 +486,14 @@ pub const SceneSerializer = struct {
             // Add MeshRendererComponent (requires asset manager)
             if (serialized.mesh_renderer) |mr| {
                 if (asset_manager) |am| {
-                    if (am.getMesh(mr.mesh_name)) |mesh| {
-                        var component = MeshRendererComponent.init(mesh);
+                    if (am.getMeshPtr(mr.mesh_name)) |mesh| {
+                        var component = MeshRendererComponent.fromMeshPtr(mesh);
                         component.enabled = mr.enabled;
 
                         if (mr.texture_path) |tex_path| {
                             if (tex_path.len > 0) {
-                                if (am.getTexture(tex_path)) |texture| {
-                                    component.texture = texture;
+                                if (am.getTexturePtr(tex_path)) |texture| {
+                                    component.setTexture(texture);
                                 }
                             }
                         }
