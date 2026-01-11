@@ -65,6 +65,8 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
+    zdl_cli.root_module.addImport("sdl3", sdl3.module("sdl3"));
+    zdl_cli.root_module.addImport("engine", engine_module);
     b.installArtifact(zdl_cli);
 
     // Run CLI tool step

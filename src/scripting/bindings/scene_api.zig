@@ -48,6 +48,12 @@ pub fn register(ctx: *JSContext) !void {
         \\    // Get entity count
         \\    entityCount: function() {
         \\        return __scene_entity_count || 0;
+        \\    },
+        \\
+        \\    // Parent-child hierarchy
+        \\    setParent: function(child, parent) {
+        \\        if (!child || !parent) return;
+        \\        __scene_set_parent_requests.push({ child: child, parent: parent });
         \\    }
         \\};
         \\
@@ -60,6 +66,7 @@ pub fn register(ctx: *JSContext) !void {
         \\var __scene_named_entities = {};
         \\var __scene_tagged_entities = {};
         \\var __scene_entity_count = 0;
+        \\var __scene_set_parent_requests = [];
         \\
         \\true;
     ;
@@ -152,4 +159,33 @@ pub fn checkSetCameraRequest(ctx: *JSContext) ?Entity {
     ctx.setGlobal("__scene_set_camera", quickjs.NULL) catch {};
 
     return entity;
+}
+
+/// Process setParent requests from JavaScript.
+pub fn processSetParentRequests(ctx: *JSContext, scene: *@import("../../ecs/scene.zig").Scene) void {
+    const requests = ctx.getGlobal("__scene_set_parent_requests");
+    defer ctx.freeValue(requests);
+
+    if (ctx.isUndefined(requests)) return;
+
+    var i: u32 = 0;
+    while (true) : (i += 1) {
+        const request = ctx.context.getPropertyUint32(requests, i);
+        defer ctx.freeValue(request);
+
+        if (ctx.isUndefined(request)) break;
+
+        const child_val = ctx.getProperty(request, "child");
+        const parent_val = ctx.getProperty(request, "parent");
+        defer ctx.freeValue(child_val);
+        defer ctx.freeValue(parent_val);
+
+        const child = bindings.jsToEntity(ctx, child_val) catch continue;
+        const parent = bindings.jsToEntity(ctx, parent_val) catch continue;
+
+        scene.setParent(child, parent);
+    }
+
+    // Clear the requests
+    ctx.setGlobal("__scene_set_parent_requests", ctx.newArray()) catch {};
 }

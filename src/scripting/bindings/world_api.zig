@@ -5,6 +5,9 @@ const JSContext = @import("../js_context.zig").JSContext;
 const JSRuntime = @import("../js_runtime.zig").JSRuntime;
 const Scene = @import("../../ecs/scene.zig").Scene;
 const Entity = @import("../../ecs/entity.zig").Entity;
+const SystemRegistry = @import("../system_registry.zig").SystemRegistry;
+const SystemPhase = @import("../system_registry.zig").SystemPhase;
+const JsSystem = @import("../system_registry.zig").JsSystem;
 const bindings = @import("bindings.zig");
 const component_api = @import("component_api.zig");
 const scene_api = @import("scene_api.zig");
@@ -308,6 +311,55 @@ pub fn runSystems(ctx: *JSContext, phase: []const u8) void {
     defer ctx.freeValue(phase_val);
     const result = ctx.call(run_fn, quickjs.UNDEFINED, &.{phase_val}) catch return;
     ctx.freeValue(result);
+}
+
+/// Register JavaScript systems from world.addSystem() to the native SystemRegistry.
+/// This scans the JS arrays and adds them to the registry.
+pub fn syncSystemsToRegistry(ctx: *JSContext, registry: *SystemRegistry, allocator: std.mem.Allocator) !void {
+    // Sync init systems
+    try syncSystemList(ctx, registry, allocator, "__world_systems_init", .init);
+
+    // Sync update systems
+    try syncSystemList(ctx, registry, allocator, "__world_systems_update", .update);
+
+    // Sync destroy systems
+    try syncSystemList(ctx, registry, allocator, "__world_systems_destroy", .destroy);
+}
+
+fn syncSystemList(ctx: *JSContext, registry: *SystemRegistry, allocator: std.mem.Allocator, list_name: [:0]const u8, phase: SystemPhase) !void {
+    const systems_array = ctx.getGlobal(list_name);
+    defer ctx.freeValue(systems_array);
+
+    if (ctx.isUndefined(systems_array)) return;
+
+    const length_prop = ctx.getProperty(systems_array, "length");
+    defer ctx.freeValue(length_prop);
+    const length = ctx.toInt32(length_prop) catch 0;
+
+    // Get current system count to avoid duplicates
+    const current_count = registry.getSystemCount(phase);
+
+    // Only add new systems (those beyond our current count)
+    var i: u32 = @intCast(current_count);
+    while (i < length) : (i += 1) {
+        const func = ctx.context.getPropertyUint32(systems_array, i);
+
+        if (ctx.isFunction(func)) {
+            // Duplicate the function reference to prevent GC
+            const func_ref = ctx.dupValue(func);
+
+            // Generate a unique name
+            const name = try registry.generateSystemName(allocator);
+
+            try registry.add(.{
+                .name = name,
+                .function = func_ref,
+                .phase = phase,
+            });
+        }
+
+        ctx.freeValue(func);
+    }
 }
 
 test "world get/has uses native cache updates" {

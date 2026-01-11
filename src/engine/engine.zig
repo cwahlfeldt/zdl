@@ -549,7 +549,7 @@ pub const Engine = struct {
     pub fn deinit(self: *Engine) void {
         // Clean up scripting
         if (self.script_system) |script_sys| {
-            script_sys.deinit();
+            script_sys.deinit(&self.device);
             self.allocator.destroy(script_sys);
         }
 

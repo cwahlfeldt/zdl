@@ -10,6 +10,7 @@ const TransformComponent = @import("../ecs/components/transform_component.zig").
 const JSRuntime = @import("js_runtime.zig").JSRuntime;
 const JSContext = @import("js_context.zig").JSContext;
 const ScriptComponent = @import("script_component.zig").ScriptComponent;
+const SystemRegistry = @import("system_registry.zig").SystemRegistry;
 const bindings = @import("bindings/bindings.zig");
 
 const math_api = @import("bindings/math_api.zig");
@@ -22,6 +23,7 @@ const component_api = @import("bindings/component_api.zig");
 const query_api = @import("bindings/query_api.zig");
 const world_api = @import("bindings/world_api.zig");
 const zdl_api = @import("bindings/zdl_api.zig");
+const component_sync = @import("bindings/component_sync.zig");
 
 /// System that manages JavaScript scripting.
 /// Initializes the JS runtime, registers bindings, and updates scripts each frame.
@@ -29,6 +31,7 @@ pub const ScriptSystem = struct {
     allocator: std.mem.Allocator,
     runtime: *JSRuntime,
     context: *JSContext,
+    system_registry: SystemRegistry,
 
     /// Total time elapsed
     total_time: f32,
@@ -87,10 +90,17 @@ pub const ScriptSystem = struct {
         try query_api.register(context);
         std.debug.print("[ScriptSystem] All APIs registered\n", .{});
 
+        var system_registry = SystemRegistry.init(allocator);
+        system_registry.setFlecsWorld(null, context);
+
+        // Initialize component sync mesh cache
+        component_sync.init(allocator);
+
         return .{
             .allocator = allocator,
             .runtime = runtime,
             .context = context,
+            .system_registry = system_registry,
             .total_time = 0,
             .reload_check_interval = 1.0,
             .reload_check_timer = 0,
@@ -100,7 +110,11 @@ pub const ScriptSystem = struct {
     }
 
     /// Deinitialize the script system.
-    pub fn deinit(self: *Self) void {
+    pub fn deinit(self: *Self, device: anytype) void {
+        // Clean up component sync mesh cache
+        component_sync.deinit(device);
+
+        self.system_registry.deinit();
         self.pending_loads.deinit(self.allocator);
         self.context.deinit();
         self.allocator.destroy(self.context);
@@ -197,6 +211,9 @@ pub const ScriptSystem = struct {
         // Process scene requests (entity creation/destruction)
         self.processSceneRequests(scene);
 
+        // Process setParent requests
+        scene_api.processSetParentRequests(self.context, scene);
+
         // Process component operations from JavaScript (registers types)
         component_api.processQueue(self.context, scene);
 
@@ -207,14 +224,24 @@ pub const ScriptSystem = struct {
         // Refresh native query cache for requested queries
         query_api.processNativeCache(self.context, scene, self.allocator);
 
+        // Sync JS components to native components for rendering
+        component_sync.syncComponentsToNative(self.context, scene, self.allocator, &engine.device) catch |err| {
+            std.debug.print("[ScriptSystem] Error syncing components to native: {}\n", .{err});
+        };
+
+        // Sync JavaScript systems to native registry (only adds new ones)
+        world_api.syncSystemsToRegistry(self.context, &self.system_registry, self.allocator) catch |err| {
+            std.debug.print("[ScriptSystem] Error syncing systems to registry: {}\n", .{err});
+        };
+
         // Run world init systems once
         if (!self.systems_initialized) {
-            world_api.runSystems(self.context, "init");
+            self.system_registry.runPhase(.init);
             self.systems_initialized = true;
         }
 
         // Run world update systems every frame
-        world_api.runSystems(self.context, "update");
+        self.system_registry.runPhase(.update);
 
         // Hot reload check
         self.reload_check_timer += delta_time;
@@ -260,7 +287,8 @@ pub const ScriptSystem = struct {
 
     /// Call onDestroy for all scripts (when shutting down).
     pub fn shutdown(self: *Self, scene: *Scene) void {
-        world_api.runSystems(self.context, "destroy");
+        // Run destroy phase systems through the registry
+        self.system_registry.runPhase(.destroy);
         scene.iterateScripts(shutdownScriptCallback, self);
     }
 };
