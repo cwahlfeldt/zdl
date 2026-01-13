@@ -93,18 +93,34 @@ pub const SystemRegistry = struct {
 
     /// Register a JS system with Flecs (creates a Flecs system entity)
     fn registerWithFlecs(self: *SystemRegistry, world: *zflecs.world_t, system: *JsSystem) !void {
-        _ = self;
-        _ = world;
-        _ = system;
+        // Create a system descriptor using the proper zflecs types
+        var desc = zflecs.system_desc_t{
+            .callback = jsSystemCallback,
+            .ctx = system,
+        };
 
-        // TODO: Implement Flecs system registration
-        // This would create a proper Flecs system entity that integrates with
-        // the Flecs scheduler. For now, we use the manual runPhase() approach.
-        //
-        // Future implementation would use:
-        // - ecs_system_init with proper descriptor
-        // - Callback that invokes the JS function
-        // - Phase integration with Flecs pipeline
+        // Create entity with proper name and phase
+        // The phase is added as a component/tag to the system entity
+        const name_z = try self.allocator.dupeZ(u8, system.name);
+        defer self.allocator.free(name_z);
+
+        // Use the SYSTEM macro approach by setting entity field
+        const phase = system.phase.toFlecsPhase();
+        desc.entity = zflecs.new_entity(world, name_z.ptr);
+        _ = zflecs.add_id(world, desc.entity, phase);
+
+        // Initialize the Flecs system with the descriptor
+        system.flecs_entity = zflecs.system_init(world, &desc);
+
+        if (system.flecs_entity == 0) {
+            return error.FlecsSystemInitFailed;
+        }
+
+        std.debug.print("[SystemRegistry] Registered Flecs system '{s}' (entity: {d}, phase: {s})\n", .{
+            system.name,
+            system.flecs_entity,
+            @tagName(system.phase),
+        });
     }
 
     /// Run all systems in a specific phase (JS-side execution)
@@ -148,16 +164,25 @@ pub const SystemRegistry = struct {
 };
 
 /// Flecs callback for JS systems
-fn jsSystemCallback(it: *zflecs.ecs_iter_t) callconv(.C) void {
+fn jsSystemCallback(it: *zflecs.iter_t) callconv(.c) void {
     const system: *JsSystem = @ptrCast(@alignCast(it.ctx));
-    _ = system;
 
-    // Note: This is a placeholder. In a full implementation, we would:
-    // 1. Get the JSContext from the system or iterator
-    // 2. Call the JS function with appropriate arguments
-    // 3. Handle any errors
+    // Get the world from the iterator
+    const world = it.world;
+    _ = world;
+
+    // Note: We need the JSContext to call the function, but it's not available
+    // in this C callback context. For now, we rely on the runPhase method which
+    // has access to the JSContext.
     //
-    // For now, we rely on the runPhase method for execution.
+    // A full implementation would store the JSContext pointer in the system struct
+    // and call it here, but that creates lifetime management complexity.
+    //
+    // The current hybrid approach works well:
+    // - Flecs manages system scheduling and phases
+    // - runPhase() actually executes the JS functions with proper context
+
+    _ = system;
 }
 
 test "system registry init and deinit" {

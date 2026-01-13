@@ -1,6 +1,7 @@
 const std = @import("std");
 const create = @import("commands/create.zig");
 const run = @import("commands/run.zig");
+const build = @import("commands/build.zig");
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -28,8 +29,8 @@ pub fn main() !void {
         const path = if (args.len >= 3) args[2] else null;
         try run.execute(allocator, path);
     } else if (std.mem.eql(u8, command, "build")) {
-        std.debug.print("Error: 'build' command not yet implemented\n", .{});
-        std.process.exit(1);
+        const path = if (args.len >= 3) args[2] else null;
+        try build.execute(allocator, path);
     } else if (std.mem.eql(u8, command, "help") or std.mem.eql(u8, command, "--help") or std.mem.eql(u8, command, "-h")) {
         printUsage();
     } else {
@@ -49,7 +50,7 @@ fn printUsage() void {
         \\Commands:
         \\  create <path>    Create a new ZDL project at the specified path
         \\  run [path]       Run a ZDL game (defaults to game.js in current directory)
-        \\  build [path]     Build a ZDL game for distribution (not yet implemented)
+        \\  build [path]     Build a ZDL game for distribution
         \\  help             Show this help message
         \\
         \\Examples:

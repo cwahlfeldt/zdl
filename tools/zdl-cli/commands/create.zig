@@ -132,8 +132,8 @@ pub fn execute(allocator: std.mem.Allocator, path: []const u8) !void {
     const formatted = try std.fmt.bufPrint(&buf, game_js_content, .{ path, path });
     try game_js_file.writeAll(formatted);
 
-    // Create project.json
-    const project_json_content =
+    // Create zdl.json
+    const zdl_json_content =
         \\{{
         \\  "name": "{s}",
         \\  "version": "1.0.0",
@@ -151,12 +151,12 @@ pub fn execute(allocator: std.mem.Allocator, path: []const u8) !void {
         \\
     ;
 
-    const project_json_file = try project_dir.createFile("project.json", .{});
-    defer project_json_file.close();
+    const zdl_json_file = try project_dir.createFile("zdl.json", .{});
+    defer zdl_json_file.close();
 
     var json_buf: [1024]u8 = undefined;
-    const formatted_json = try std.fmt.bufPrint(&json_buf, project_json_content, .{ path, path });
-    try project_json_file.writeAll(formatted_json);
+    const formatted_json = try std.fmt.bufPrint(&json_buf, zdl_json_content, .{ path, path });
+    try zdl_json_file.writeAll(formatted_json);
 
     // Create README.md
     const readme_content =
@@ -183,7 +183,7 @@ pub fn execute(allocator: std.mem.Allocator, path: []const u8) !void {
         \\- `game.js` - Main game entry point
         \\- `assets/` - Game assets (models, textures, etc.)
         \\- `scripts/` - Additional game scripts
-        \\- `project.json` - Project configuration
+        \\- `zdl.json` - Project configuration
         \\
     ;
 

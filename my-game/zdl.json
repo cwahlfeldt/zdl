@@ -1,0 +1,14 @@
+{
+  "name": "my-game",
+  "version": "1.0.0",
+  "entry": "game.js",
+  "output": "dist/",
+  "window": {
+    "width": 1280,
+    "height": 720,
+    "title": "my-game"
+  },
+  "assets": {
+    "include": ["assets/**/*"]
+  }
+}

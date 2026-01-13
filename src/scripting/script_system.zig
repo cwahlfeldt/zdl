@@ -46,6 +46,9 @@ pub const ScriptSystem = struct {
     /// Whether world init systems have run
     systems_initialized: bool,
 
+    /// Whether Flecs world has been connected to the registry
+    flecs_connected: bool,
+
     const Self = @This();
 
     /// Initialize the script system.
@@ -91,6 +94,7 @@ pub const ScriptSystem = struct {
         std.debug.print("[ScriptSystem] All APIs registered\n", .{});
 
         var system_registry = SystemRegistry.init(allocator);
+        // Note: Flecs world will be set later when update() is called with a scene
         system_registry.setFlecsWorld(null, context);
 
         // Initialize component sync mesh cache
@@ -106,6 +110,7 @@ pub const ScriptSystem = struct {
             .reload_check_timer = 0,
             .pending_loads = .{},
             .systems_initialized = false,
+            .flecs_connected = false,
         };
     }
 
@@ -138,6 +143,13 @@ pub const ScriptSystem = struct {
         delta_time: f32,
     ) void {
         self.total_time += delta_time;
+
+        // Connect Flecs world to system registry on first update
+        if (!self.flecs_connected) {
+            self.system_registry.setFlecsWorld(scene.world, self.context);
+            self.flecs_connected = true;
+            std.debug.print("[ScriptSystem] Connected Flecs world to system registry\n", .{});
+        }
 
         // Set up binding context
         var ctx = bindings.BindingContext{
