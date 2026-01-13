@@ -4,7 +4,7 @@
 const std = @import("std");
 const sdl = @import("sdl3");
 const Vec2 = @import("../math/vec2.zig").Vec2;
-const Color = @import("../engine/engine.zig").Color;
+const Color = @import("../render/render.zig").Color;
 const Input = @import("../input/input.zig").Input;
 
 const ui = @import("ui.zig");

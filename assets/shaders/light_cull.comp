@@ -1,0 +1,180 @@
+#version 450
+
+// Light Culling Compute Shader for Forward+ Rendering
+//
+// This shader assigns lights to 3D clusters in the view frustum.
+// Each cluster tests all lights for intersection with its AABB.
+//
+// Workgroup layout: 16x9x1 threads per group, one group per Z slice
+// Total threads = 16 * 9 * 24 = 3456 (one per cluster)
+
+layout(local_size_x = 16, local_size_y = 9, local_size_z = 1) in;
+
+// Constants
+const uint MAX_LIGHTS_PER_CLUSTER = 128;
+
+// Point light structure
+struct PointLight {
+    vec4 position_range;    // xyz = position (view space), w = range
+    vec4 color_intensity;   // rgb = color, a = intensity
+};
+
+// Spot light structure
+struct SpotLight {
+    vec4 position_range;    // xyz = position (view space), w = range
+    vec4 direction_outer;   // xyz = direction, w = outer_cos
+    vec4 color_intensity;   // rgb = color, a = intensity
+    vec4 inner_pad;         // x = inner_cos
+};
+
+// Cluster AABB
+struct ClusterAABB {
+    vec4 min_point;
+    vec4 max_point;
+};
+
+// Per-cluster light list
+struct LightGrid {
+    uint offset;
+    uint count;
+};
+
+// SDL3 GPU Compute Shader Binding Layout (SPIR-V):
+//   Set 0: Sampled textures -> Read-only storage textures -> Read-only storage buffers
+//   Set 1: Read-write storage textures -> Read-write storage buffers
+//   Set 2: Uniform buffers
+
+// Uniform buffer - SDL3 set 2, binding 0
+layout(std140, set = 2, binding = 0) uniform ClusterUBO {
+    mat4 view_matrix;
+    mat4 inv_proj_matrix;
+
+    float screen_width;
+    float screen_height;
+    uint cluster_count_x;
+    uint cluster_count_y;
+
+    uint cluster_count_z;
+    float near_plane;
+    float far_plane;
+    float _pad0;
+
+    uint point_light_count;
+    uint spot_light_count;
+    uvec2 _pad1;
+} cluster_info;
+
+// Read-only storage buffers - SDL3 set 0, bindings 0-2
+layout(std430, set = 0, binding = 0) readonly buffer ClusterAABBBuffer {
+    ClusterAABB cluster_aabbs[];
+};
+
+layout(std430, set = 0, binding = 1) readonly buffer PointLightBuffer {
+    PointLight point_lights[];
+};
+
+layout(std430, set = 0, binding = 2) readonly buffer SpotLightBuffer {
+    SpotLight spot_lights[];
+};
+
+// Read-write storage buffers - SDL3 set 1, bindings 0-1
+layout(std430, set = 1, binding = 0) buffer LightGridBuffer {
+    LightGrid light_grid[];
+};
+
+layout(std430, set = 1, binding = 1) buffer LightIndexBuffer {
+    uint light_indices[];
+};
+
+// Test sphere-AABB intersection
+bool sphereAABBIntersect(vec3 center, float radius, vec3 aabb_min, vec3 aabb_max) {
+    // Find closest point on AABB to sphere center
+    vec3 closest = clamp(center, aabb_min, aabb_max);
+
+    // Check if closest point is within sphere radius
+    vec3 diff = center - closest;
+    float dist_sq = dot(diff, diff);
+
+    return dist_sq <= (radius * radius);
+}
+
+// Test cone-AABB intersection (simplified - uses bounding sphere of cone)
+bool coneAABBIntersect(vec3 apex, vec3 direction, float range, float outer_cos, vec3 aabb_min, vec3 aabb_max) {
+    // For simplicity, use bounding sphere approximation
+    // The cone's bounding sphere is centered at apex + direction * range/2
+    // with radius = range/2 / cos(half_angle) for narrow cones
+    // For wide cones, just use range as radius
+
+    float half_angle = acos(outer_cos);
+    float sin_half = sin(half_angle);
+
+    // Bounding sphere center and radius
+    vec3 center = apex + direction * (range * 0.5);
+    float radius = range * 0.5 / max(outer_cos, 0.001);
+
+    // Clamp radius to reasonable bounds
+    radius = min(radius, range * 2.0);
+
+    return sphereAABBIntersect(center, radius, aabb_min, aabb_max);
+}
+
+void main() {
+    uint cluster_x = gl_GlobalInvocationID.x;
+    uint cluster_y = gl_GlobalInvocationID.y;
+    uint cluster_z = gl_GlobalInvocationID.z;
+
+    // Early out if outside grid
+    if (cluster_x >= cluster_info.cluster_count_x ||
+        cluster_y >= cluster_info.cluster_count_y ||
+        cluster_z >= cluster_info.cluster_count_z) {
+        return;
+    }
+
+    uint cluster_idx = cluster_z * cluster_info.cluster_count_x * cluster_info.cluster_count_y +
+                       cluster_y * cluster_info.cluster_count_x +
+                       cluster_x;
+
+    // Get cluster AABB (already in view space)
+    ClusterAABB aabb = cluster_aabbs[cluster_idx];
+    vec3 aabb_min = aabb.min_point.xyz;
+    vec3 aabb_max = aabb.max_point.xyz;
+
+    uint base_offset = cluster_idx * MAX_LIGHTS_PER_CLUSTER;
+    uint count = 0;
+
+    // Test point lights
+    for (uint i = 0; i < cluster_info.point_light_count; i++) {
+        PointLight light = point_lights[i];
+
+        // Transform light position to view space
+        vec4 view_pos = cluster_info.view_matrix * vec4(light.position_range.xyz, 1.0);
+        float range = light.position_range.w;
+
+        if (sphereAABBIntersect(view_pos.xyz, range, aabb_min, aabb_max) && count < MAX_LIGHTS_PER_CLUSTER) {
+            // Store as point light index (high bit = 0)
+            light_indices[base_offset + count] = i;
+            count++;
+        }
+    }
+
+    // Test spot lights
+    for (uint i = 0; i < cluster_info.spot_light_count; i++) {
+        SpotLight light = spot_lights[i];
+
+        // Transform light position and direction to view space
+        vec4 view_pos = cluster_info.view_matrix * vec4(light.position_range.xyz, 1.0);
+        vec4 view_dir = cluster_info.view_matrix * vec4(light.direction_outer.xyz, 0.0);
+        float range = light.position_range.w;
+        float outer_cos = light.direction_outer.w;
+
+        if (coneAABBIntersect(view_pos.xyz, normalize(view_dir.xyz), range, outer_cos, aabb_min, aabb_max) &&
+            count < MAX_LIGHTS_PER_CLUSTER) {
+            // Store as spot light index (high bit = 1)
+            light_indices[base_offset + count] = i | 0x80000000u;
+            count++;
+        }
+    }
+
+    light_grid[cluster_idx].offset = base_offset;
+    light_grid[cluster_idx].count = count;
+}

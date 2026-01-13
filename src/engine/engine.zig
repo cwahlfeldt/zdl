@@ -1,7 +1,11 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const sdl = @import("sdl3");
-const Input = @import("../input/input.zig").Input;
+const input_module = @import("../input/input.zig");
+const Input = input_module.Input;
+const MouseButton = input_module.MouseButton;
+const GamepadButton = input_module.GamepadButton;
+const GamepadAxis = input_module.GamepadAxis;
 const Audio = @import("../audio/audio.zig").Audio;
 
 // New modular imports
@@ -20,6 +24,7 @@ const RenderSystem = @import("../ecs/systems/render_system.zig").RenderSystem;
 
 // Scripting imports
 const ScriptSystem = @import("../scripting/script_system.zig").ScriptSystem;
+const ScriptContext = @import("../scripting/script_context.zig").ScriptContext;
 
 // IBL imports
 const EnvironmentMap = @import("../ibl/environment_map.zig").EnvironmentMap;
@@ -227,6 +232,31 @@ pub const Engine = struct {
         return env;
     }
 
+    /// Initialize Forward+ clustered rendering (CPU culling mode).
+    /// This enables efficient rendering of many dynamic lights.
+    /// Uses CPU-based culling which is more compatible but less performant.
+    pub fn initForwardPlus(self: *Engine) !void {
+        try self.render_manager.initForwardPlus();
+    }
+
+    /// Initialize Forward+ with GPU compute culling.
+    /// This uses a GPU compute shader for light culling, which is faster
+    /// but requires proper driver support for compute shaders.
+    pub fn initForwardPlusGPU(self: *Engine) !void {
+        try self.render_manager.initForwardPlusGPU();
+    }
+
+    /// Check if Forward+ rendering is available.
+    pub fn hasForwardPlus(self: *Engine) bool {
+        return self.render_manager.hasForwardPlus();
+    }
+
+    /// Enable or disable Forward+ rendering.
+    /// When disabled, falls back to standard PBR rendering.
+    pub fn setForwardPlusEnabled(self: *Engine, enabled: bool) void {
+        self.render_manager.setForwardPlusEnabled(enabled);
+    }
+
     pub fn deinit(self: *Engine) void {
         // Clean up scripting
         if (self.script_system) |script_sys| {
@@ -261,18 +291,22 @@ pub const Engine = struct {
 
             self.input.update();
 
+            // Process SDL events and translate to Input state-setters
+            // This decouples Input from direct SDL event processing
             while (sdl.events.poll()) |event| {
                 switch (event) {
                     .quit => running = false,
                     .key_down => |key_event| {
-                        if (key_event.scancode == .escape) {
+                        const scancode = key_event.scancode orelse continue;
+                        // Engine-level key handling
+                        if (scancode == .escape) {
                             if (self.input.mouse_captured) {
                                 self.setMouseCapture(false);
                             } else {
                                 running = false;
                             }
                         }
-                        if (key_event.scancode == .func3) {
+                        if (scancode == .func3) {
                             self.show_fps = !self.show_fps;
                             std.debug.print("FPS counter: {s}\n", .{if (self.show_fps) "ON" else "OFF"});
 
@@ -280,18 +314,55 @@ pub const Engine = struct {
                                 self.window_manager.setTitle(self.original_window_title);
                             }
                         }
-                        try self.input.processEvent(event);
+                        // Forward to Input via state-setter
+                        self.input.setKeyDown(scancode, key_event.repeat);
                     },
-                    .key_up => try self.input.processEvent(event),
-                    .mouse_motion, .mouse_button_down, .mouse_button_up => try self.input.processEvent(event),
-                    .gamepad_added,
-                    .gamepad_removed,
-                    .gamepad_button_down,
-                    .gamepad_button_up,
-                    .gamepad_axis_motion,
-                    => try self.input.processEvent(event),
+                    .key_up => |key_event| {
+                        if (key_event.scancode) |scancode| {
+                            self.input.setKeyUp(scancode);
+                        }
+                    },
+                    .mouse_motion => |motion| {
+                        self.input.setMousePosition(motion.x, motion.y);
+                        self.input.setMouseDelta(motion.x_rel, motion.y_rel);
+                    },
+                    .mouse_button_down => |button| {
+                        const mb = MouseButton.fromSdl(button.button) orelse continue;
+                        self.input.setMouseButton(mb, true);
+                    },
+                    .mouse_button_up => |button| {
+                        const mb = MouseButton.fromSdl(button.button) orelse continue;
+                        self.input.setMouseButton(mb, false);
+                    },
+                    .gamepad_added => |gp_event| {
+                        self.input.gamepads.handleGamepadAdded(gp_event.id) catch {};
+                    },
+                    .gamepad_removed => |gp_event| {
+                        self.input.gamepads.handleGamepadRemoved(gp_event.id);
+                    },
+                    .gamepad_button_down => |gp_event| {
+                        self.input.last_input_device = .gamepad;
+                        if (self.input.gamepads.getById(gp_event.id)) |gamepad| {
+                            gamepad.handleButtonDown(GamepadButton.fromSdl(gp_event.button));
+                        }
+                    },
+                    .gamepad_button_up => |gp_event| {
+                        if (self.input.gamepads.getById(gp_event.id)) |gamepad| {
+                            gamepad.handleButtonUp(GamepadButton.fromSdl(gp_event.button));
+                        }
+                    },
+                    .gamepad_axis_motion => |gp_event| {
+                        self.input.last_input_device = .gamepad;
+                        if (self.input.gamepads.getById(gp_event.id)) |gamepad| {
+                            gamepad.handleAxisMotion(GamepadAxis.fromSdl(gp_event.axis), gp_event.value);
+                        }
+                    },
                     else => {},
                 }
+            }
+
+            if (!running) {
+                break;
             }
 
             // Update FPS counter
@@ -315,7 +386,20 @@ pub const Engine = struct {
 
             // Update scripts
             if (self.script_system) |script_sys| {
-                script_sys.update(scene, self, &self.input, delta_time);
+                // Create ScriptContext to decouple ScriptSystem from Engine
+                const script_ctx = ScriptContext{
+                    .delta_time = delta_time,
+                    .total_time = self.total_time,
+                    .fps = self.fps_current,
+                    .window_width = self.window_width,
+                    .window_height = self.window_height,
+                    .mouse_captured = self.input.mouse_captured,
+                    .device = @ptrCast(&self.render_manager.device),
+                    .engine_ptr = @ptrCast(self),
+                    .set_mouse_capture_fn = &setMouseCaptureCallback,
+                    .request_quit_fn = &requestQuitCallback,
+                };
+                script_sys.update(scene, &script_ctx, &self.input, delta_time);
             }
 
             // Check if script requested quit
@@ -361,3 +445,14 @@ pub const Engine = struct {
         self.render_manager.setClearColor(color);
     }
 };
+
+// Callback functions for ScriptContext (defined outside Engine to get proper fn pointer types)
+fn setMouseCaptureCallback(engine_ptr: *anyopaque, captured: bool) void {
+    const engine: *Engine = @ptrCast(@alignCast(engine_ptr));
+    engine.setMouseCapture(captured);
+}
+
+fn requestQuitCallback(engine_ptr: *anyopaque) void {
+    const engine: *Engine = @ptrCast(@alignCast(engine_ptr));
+    engine.should_quit = true;
+}

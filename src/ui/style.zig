@@ -1,7 +1,7 @@
 // ZDL UI Style System
 // Theming and styling for consistent UI appearance
 
-const Color = @import("../engine/engine.zig").Color;
+const Color = @import("../render/render.zig").Color;
 
 /// Padding/margin insets
 pub const Insets = struct {

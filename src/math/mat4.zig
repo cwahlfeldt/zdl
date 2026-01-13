@@ -99,6 +99,134 @@ pub const Mat4 = struct {
         return result;
     }
 
+    /// Invert a 4x4 matrix. Returns null if not invertible.
+    pub fn inverse(self: Mat4) ?Mat4 {
+        const m = self.data;
+        var inv: [16]f32 = undefined;
+
+        inv[0] = m[5] * m[10] * m[15] -
+            m[5] * m[11] * m[14] -
+            m[9] * m[6] * m[15] +
+            m[9] * m[7] * m[14] +
+            m[13] * m[6] * m[11] -
+            m[13] * m[7] * m[10];
+
+        inv[4] = -m[4] * m[10] * m[15] +
+            m[4] * m[11] * m[14] +
+            m[8] * m[6] * m[15] -
+            m[8] * m[7] * m[14] -
+            m[12] * m[6] * m[11] +
+            m[12] * m[7] * m[10];
+
+        inv[8] = m[4] * m[9] * m[15] -
+            m[4] * m[11] * m[13] -
+            m[8] * m[5] * m[15] +
+            m[8] * m[7] * m[13] +
+            m[12] * m[5] * m[11] -
+            m[12] * m[7] * m[9];
+
+        inv[12] = -m[4] * m[9] * m[14] +
+            m[4] * m[10] * m[13] +
+            m[8] * m[5] * m[14] -
+            m[8] * m[6] * m[13] -
+            m[12] * m[5] * m[10] +
+            m[12] * m[6] * m[9];
+
+        inv[1] = -m[1] * m[10] * m[15] +
+            m[1] * m[11] * m[14] +
+            m[9] * m[2] * m[15] -
+            m[9] * m[3] * m[14] -
+            m[13] * m[2] * m[11] +
+            m[13] * m[3] * m[10];
+
+        inv[5] = m[0] * m[10] * m[15] -
+            m[0] * m[11] * m[14] -
+            m[8] * m[2] * m[15] +
+            m[8] * m[3] * m[14] +
+            m[12] * m[2] * m[11] -
+            m[12] * m[3] * m[10];
+
+        inv[9] = -m[0] * m[9] * m[15] +
+            m[0] * m[11] * m[13] +
+            m[8] * m[1] * m[15] -
+            m[8] * m[3] * m[13] -
+            m[12] * m[1] * m[11] +
+            m[12] * m[3] * m[9];
+
+        inv[13] = m[0] * m[9] * m[14] -
+            m[0] * m[10] * m[13] -
+            m[8] * m[1] * m[14] +
+            m[8] * m[2] * m[13] +
+            m[12] * m[1] * m[10] -
+            m[12] * m[2] * m[9];
+
+        inv[2] = m[1] * m[6] * m[15] -
+            m[1] * m[7] * m[14] -
+            m[5] * m[2] * m[15] +
+            m[5] * m[3] * m[14] +
+            m[13] * m[2] * m[7] -
+            m[13] * m[3] * m[6];
+
+        inv[6] = -m[0] * m[6] * m[15] +
+            m[0] * m[7] * m[14] +
+            m[4] * m[2] * m[15] -
+            m[4] * m[3] * m[14] -
+            m[12] * m[2] * m[7] +
+            m[12] * m[3] * m[6];
+
+        inv[10] = m[0] * m[5] * m[15] -
+            m[0] * m[7] * m[13] -
+            m[4] * m[1] * m[15] +
+            m[4] * m[3] * m[13] +
+            m[12] * m[1] * m[7] -
+            m[12] * m[3] * m[5];
+
+        inv[14] = -m[0] * m[5] * m[14] +
+            m[0] * m[6] * m[13] +
+            m[4] * m[1] * m[14] -
+            m[4] * m[2] * m[13] -
+            m[12] * m[1] * m[6] +
+            m[12] * m[2] * m[5];
+
+        inv[3] = -m[1] * m[6] * m[11] +
+            m[1] * m[7] * m[10] +
+            m[5] * m[2] * m[11] -
+            m[5] * m[3] * m[10] -
+            m[9] * m[2] * m[7] +
+            m[9] * m[3] * m[6];
+
+        inv[7] = m[0] * m[6] * m[11] -
+            m[0] * m[7] * m[10] -
+            m[4] * m[2] * m[11] +
+            m[4] * m[3] * m[10] +
+            m[8] * m[2] * m[7] -
+            m[8] * m[3] * m[6];
+
+        inv[11] = -m[0] * m[5] * m[11] +
+            m[0] * m[7] * m[9] +
+            m[4] * m[1] * m[11] -
+            m[4] * m[3] * m[9] -
+            m[8] * m[1] * m[7] +
+            m[8] * m[3] * m[5];
+
+        inv[15] = m[0] * m[5] * m[10] -
+            m[0] * m[6] * m[9] -
+            m[4] * m[1] * m[10] +
+            m[4] * m[2] * m[9] +
+            m[8] * m[1] * m[6] -
+            m[8] * m[2] * m[5];
+
+        const det = m[0] * inv[0] + m[1] * inv[4] + m[2] * inv[8] + m[3] * inv[12];
+        if (det == 0.0) return null;
+
+        const inv_det = 1.0 / det;
+        for (inv[0..]) |*v| {
+            v.* *= inv_det;
+        }
+
+        return .{ .data = inv };
+    }
+
     /// Create a view matrix using lookAt
     /// eye: camera position
     /// target: point to look at
@@ -114,5 +242,42 @@ pub const Mat4 = struct {
             r.z,  u.z,  -f.z, 0,
             -r.dot(eye), -u.dot(eye), f.dot(eye), 1,
         } };
+    }
+
+    /// Multiply a Vec4 by this matrix
+    pub fn multiplyVec4(self: Mat4, v: @import("vec4.zig").Vec4) @import("vec4.zig").Vec4 {
+        const Vec4 = @import("vec4.zig").Vec4;
+        return Vec4.init(
+            self.data[0] * v.x + self.data[4] * v.y + self.data[8] * v.z + self.data[12] * v.w,
+            self.data[1] * v.x + self.data[5] * v.y + self.data[9] * v.z + self.data[13] * v.w,
+            self.data[2] * v.x + self.data[6] * v.y + self.data[10] * v.z + self.data[14] * v.w,
+            self.data[3] * v.x + self.data[7] * v.y + self.data[11] * v.z + self.data[15] * v.w,
+        );
+    }
+
+    /// Transform a point (position) by this matrix
+    /// Assumes w=1 and performs perspective divide if needed
+    pub fn multiplyPoint(self: Mat4, p: @import("vec3.zig").Vec3) @import("vec3.zig").Vec3 {
+        const Vec3 = @import("vec3.zig").Vec3;
+        const x = self.data[0] * p.x + self.data[4] * p.y + self.data[8] * p.z + self.data[12];
+        const y = self.data[1] * p.x + self.data[5] * p.y + self.data[9] * p.z + self.data[13];
+        const z = self.data[2] * p.x + self.data[6] * p.y + self.data[10] * p.z + self.data[14];
+        const w = self.data[3] * p.x + self.data[7] * p.y + self.data[11] * p.z + self.data[15];
+
+        if (@abs(w) > 0.0001) {
+            return Vec3.init(x / w, y / w, z / w);
+        }
+        return Vec3.init(x, y, z);
+    }
+
+    /// Transform a direction vector by this matrix (ignores translation)
+    /// Assumes w=0
+    pub fn multiplyDirection(self: Mat4, d: @import("vec3.zig").Vec3) @import("vec3.zig").Vec3 {
+        const Vec3 = @import("vec3.zig").Vec3;
+        return Vec3.init(
+            self.data[0] * d.x + self.data[4] * d.y + self.data[8] * d.z,
+            self.data[1] * d.x + self.data[5] * d.y + self.data[9] * d.z,
+            self.data[2] * d.x + self.data[6] * d.y + self.data[10] * d.z,
+        );
     }
 };

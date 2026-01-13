@@ -9,7 +9,14 @@ const MaterialUniforms = @import("../resources/material.zig").MaterialUniforms;
 const Uniforms = @import("../gpu/uniforms.zig").Uniforms;
 const LightUniforms = @import("../gpu/uniforms.zig").LightUniforms;
 const primitives = @import("../resources/primitives.zig");
-const Mat4 = @import("../math/math.zig").Mat4;
+const math = @import("../math/math.zig");
+const Mat4 = math.Mat4;
+const Vec3 = math.Vec3;
+
+// Forward+ imports
+const forward_plus = @import("forward_plus.zig");
+const ForwardPlusManager = forward_plus.ForwardPlusManager;
+const ForwardPlusConfig = forward_plus.ForwardPlusConfig;
 
 // IBL imports
 const BrdfLut = @import("../ibl/brdf_lut.zig").BrdfLut;
@@ -56,6 +63,20 @@ const SkyboxShaderConfig = if (is_macos) struct {
     const format = sdl.gpu.ShaderFormatFlags{ .spirv = true };
     const vertex_path = "build/assets/shaders/skybox.vert.spv";
     const fragment_path = "build/assets/shaders/skybox.frag.spv";
+    const vertex_entry = "main";
+    const fragment_entry = "main";
+};
+
+const ForwardPlusShaderConfig = if (is_macos) struct {
+    const format = sdl.gpu.ShaderFormatFlags{ .msl = true };
+    const vertex_path = "assets/shaders/pbr_forward_plus.metal";
+    const fragment_path = "assets/shaders/pbr_forward_plus.metal";
+    const vertex_entry = "pbr_forward_plus_vertex_main";
+    const fragment_entry = "pbr_forward_plus_fragment_main";
+} else struct {
+    const format = sdl.gpu.ShaderFormatFlags{ .spirv = true };
+    const vertex_path = "build/assets/shaders/pbr.vert.spv"; // Reuse PBR vertex shader
+    const fragment_path = "build/assets/shaders/pbr_forward_plus.frag.spv";
     const vertex_entry = "main";
     const fragment_entry = "main";
 };
@@ -112,6 +133,11 @@ pub const RenderManager = struct {
     current_environment: ?*EnvironmentMap,
     default_environment: ?*EnvironmentMap,
     ibl_enabled: bool,
+
+    // Forward+ resources
+    forward_plus_manager: ?*ForwardPlusManager,
+    forward_plus_pipeline: ?sdl.gpu.GraphicsPipeline,
+    forward_plus_enabled: bool,
 
     // Light uniforms (shared state for rendering)
     light_uniforms: LightUniforms,
@@ -262,6 +288,9 @@ pub const RenderManager = struct {
             .current_environment = null,
             .default_environment = null,
             .ibl_enabled = false,
+            .forward_plus_manager = null,
+            .forward_plus_pipeline = null,
+            .forward_plus_enabled = false,
             .light_uniforms = LightUniforms.default(),
             .window_width = width,
             .window_height = height,
@@ -303,6 +332,13 @@ pub const RenderManager = struct {
             var mutable_env = env;
             mutable_env.deinit(&mutable_device);
             self.allocator.destroy(env);
+        }
+
+        // Clean up Forward+ resources
+        if (self.forward_plus_pipeline) |p| self.device.releaseGraphicsPipeline(p);
+        if (self.forward_plus_manager) |fp| {
+            fp.deinit(&mutable_device);
+            self.allocator.destroy(fp);
         }
 
         if (self.depth_texture) |dt| self.device.releaseTexture(dt);
@@ -581,6 +617,150 @@ pub const RenderManager = struct {
             try cube_mesh.upload(&mutable_device);
             self.skybox_mesh = cube_mesh;
         }
+    }
+
+    /// Initialize Forward+ clustered rendering (CPU culling mode)
+    /// This enables efficient rendering of many dynamic lights by clustering
+    /// the view frustum and assigning lights to clusters.
+    /// Uses CPU-based culling which is more compatible but less performant.
+    pub fn initForwardPlus(self: *RenderManager) !void {
+        return self.initForwardPlusWithConfig(.{}, false);
+    }
+
+    /// Initialize Forward+ with GPU compute culling
+    /// This uses a GPU compute shader for light culling, which is faster
+    /// but requires proper driver support for compute shaders.
+    pub fn initForwardPlusGPU(self: *RenderManager) !void {
+        return self.initForwardPlusWithConfig(.{}, true);
+    }
+
+    /// Initialize Forward+ with custom configuration
+    pub fn initForwardPlusWithConfig(self: *RenderManager, config: ForwardPlusConfig, use_gpu_compute: bool) !void {
+        if (self.forward_plus_manager != null) return;
+
+        // Ensure PBR is initialized first (Forward+ extends PBR)
+        if (self.pbr_pipeline == null) {
+            try self.initPBR();
+        }
+
+        var mutable_device = self.device;
+
+        // Create Forward+ manager
+        const fp = try self.allocator.create(ForwardPlusManager);
+        errdefer self.allocator.destroy(fp);
+        fp.* = ForwardPlusManager.init(self.allocator, config);
+        errdefer fp.deinit(&mutable_device);
+
+        // Initialize GPU resources
+        if (use_gpu_compute) {
+            try fp.initGPUCompute(self.allocator, &mutable_device);
+        } else {
+            try fp.initGPU(self.allocator, &mutable_device);
+        }
+
+        // Create Forward+ graphics pipeline
+        const fp_vertex_code = try std.fs.cwd().readFileAlloc(
+            self.allocator,
+            ForwardPlusShaderConfig.vertex_path,
+            1024 * 1024,
+        );
+        defer self.allocator.free(fp_vertex_code);
+
+        const fp_fragment_code = if (is_macos)
+            fp_vertex_code
+        else
+            try std.fs.cwd().readFileAlloc(
+                self.allocator,
+                ForwardPlusShaderConfig.fragment_path,
+                1024 * 1024,
+            );
+        defer if (!is_macos) self.allocator.free(fp_fragment_code);
+
+        const fp_vertex_shader = try self.device.createShader(.{
+            .code = fp_vertex_code,
+            .entry_point = ForwardPlusShaderConfig.vertex_entry,
+            .format = ForwardPlusShaderConfig.format,
+            .stage = .vertex,
+            .num_samplers = 0,
+            .num_storage_buffers = 0,
+            .num_storage_textures = 0,
+            .num_uniform_buffers = 1,
+        });
+        defer self.device.releaseShader(fp_vertex_shader);
+
+        const fp_fragment_shader = try self.device.createShader(.{
+            .code = fp_fragment_code,
+            .entry_point = ForwardPlusShaderConfig.fragment_entry,
+            .format = ForwardPlusShaderConfig.format,
+            .stage = .fragment,
+            .num_samplers = 8,
+            .num_storage_buffers = 4, // light_grid, light_indices, point_lights, spot_lights
+            .num_storage_textures = 0,
+            .num_uniform_buffers = 2,
+        });
+        defer self.device.releaseShader(fp_fragment_shader);
+
+        const vertex_buffer_desc = Mesh.getVertexBufferDesc();
+        const vertex_attributes = Mesh.getVertexAttributes();
+
+        const color_target_desc = sdl.gpu.ColorTargetDescription{
+            .format = try self.device.getSwapchainTextureFormat(self.window),
+            .blend_state = .{
+                .enable_blend = false,
+                .color_blend = .add,
+                .alpha_blend = .add,
+                .source_color = .one,
+                .source_alpha = .one,
+                .destination_color = .zero,
+                .destination_alpha = .zero,
+                .enable_color_write_mask = true,
+                .color_write_mask = .{ .red = true, .green = true, .blue = true, .alpha = true },
+            },
+        };
+
+        self.forward_plus_pipeline = try self.device.createGraphicsPipeline(.{
+            .vertex_shader = fp_vertex_shader,
+            .fragment_shader = fp_fragment_shader,
+            .primitive_type = .triangle_list,
+            .vertex_input_state = .{
+                .vertex_buffer_descriptions = &[_]sdl.gpu.VertexBufferDescription{vertex_buffer_desc},
+                .vertex_attributes = &vertex_attributes,
+            },
+            .rasterizer_state = .{
+                .cull_mode = .back,
+                .front_face = .counter_clockwise,
+            },
+            .target_info = .{
+                .color_target_descriptions = &[_]sdl.gpu.ColorTargetDescription{color_target_desc},
+                .depth_stencil_format = .depth32_float,
+            },
+            .depth_stencil_state = .{
+                .enable_depth_test = true,
+                .enable_depth_write = true,
+                .compare = .less,
+                .enable_stencil_test = false,
+            },
+        });
+
+        self.forward_plus_manager = fp;
+        self.forward_plus_enabled = true;
+    }
+
+    /// Check if Forward+ rendering is available
+    pub fn hasForwardPlus(self: *RenderManager) bool {
+        return self.forward_plus_manager != null and self.forward_plus_enabled;
+    }
+
+    /// Enable/disable Forward+ rendering (falls back to standard PBR when disabled)
+    pub fn setForwardPlusEnabled(self: *RenderManager, enabled: bool) void {
+        if (self.forward_plus_manager != null) {
+            self.forward_plus_enabled = enabled;
+        }
+    }
+
+    /// Get the Forward+ manager for adding lights
+    pub fn getForwardPlusManager(self: *RenderManager) ?*ForwardPlusManager {
+        return self.forward_plus_manager;
     }
 
     /// Set the clear color for rendering
@@ -863,6 +1043,110 @@ pub const RenderFrame = struct {
 
         self.bindPBRTextures(material);
         self.bindIBLTextures();
+
+        self.drawMesh(mesh);
+    }
+
+    // ========================================================================
+    // Forward+ Rendering Methods
+    // ========================================================================
+
+    /// Bind the Forward+ pipeline. Returns false if Forward+ is not initialized.
+    pub fn bindForwardPlusPipeline(self: *RenderFrame) bool {
+        if (self.manager.forward_plus_pipeline) |fp| {
+            self.pass.bindGraphicsPipeline(fp);
+            return true;
+        }
+        return false;
+    }
+
+    /// Bind Forward+ storage buffers for fragment shader
+    pub fn bindForwardPlusStorageBuffers(self: *RenderFrame) void {
+        const fp = self.manager.forward_plus_manager orelse return;
+
+        const light_grid = fp.getLightGridBuffer() orelse return;
+        const light_indices = fp.getLightIndexBuffer() orelse return;
+        const point_lights = fp.getPointLightBuffer() orelse return;
+        const spot_lights = fp.getSpotLightBuffer() orelse return;
+
+        self.pass.bindFragmentStorageBuffers(0, &[_]sdl.gpu.Buffer{
+            light_grid,
+            light_indices,
+            point_lights,
+            spot_lights,
+        });
+    }
+
+    /// Push Forward+ uniforms for fragment shader
+    pub fn pushForwardPlusUniforms(self: *RenderFrame, view: Mat4) void {
+        const mgr = self.manager;
+        const fp = mgr.forward_plus_manager orelse return;
+
+        const config = fp.getConfig();
+
+        // Build ForwardPlusUniforms structure
+        const ForwardPlusUniforms = extern struct {
+            directional_direction: [4]f32,
+            directional_color_intensity: [4]f32,
+            ambient_color_intensity: [4]f32,
+            camera_position: [4]f32,
+            ibl_params: [4]f32,
+
+            screen_width: f32,
+            screen_height: f32,
+            cluster_count_x: u32,
+            cluster_count_y: u32,
+
+            cluster_count_z: u32,
+            near_plane: f32,
+            far_plane: f32,
+            log_depth_scale: f32,
+
+            view_matrix: [16]f32,
+        };
+
+        const log_depth_scale = 1.0 / @log(config.far_plane / config.near_plane);
+
+        const uniforms = ForwardPlusUniforms{
+            .directional_direction = mgr.light_uniforms.directional_direction,
+            .directional_color_intensity = mgr.light_uniforms.directional_color_intensity,
+            .ambient_color_intensity = mgr.light_uniforms.ambient_color_intensity,
+            .camera_position = mgr.light_uniforms.camera_position,
+            .ibl_params = mgr.light_uniforms.ibl_params,
+            .screen_width = @floatFromInt(mgr.window_width),
+            .screen_height = @floatFromInt(mgr.window_height),
+            .cluster_count_x = config.cluster_count_x,
+            .cluster_count_y = config.cluster_count_y,
+            .cluster_count_z = config.cluster_count_z,
+            .near_plane = config.near_plane,
+            .far_plane = config.far_plane,
+            .log_depth_scale = log_depth_scale,
+            .view_matrix = view.data,
+        };
+
+        self.cmd.pushFragmentUniformData(1, std.mem.asBytes(&uniforms));
+    }
+
+    /// Draw a mesh with Forward+ clustered lighting
+    pub fn drawMeshForwardPlus(
+        self: *RenderFrame,
+        mesh: Mesh,
+        material: Material,
+        model_matrix: Mat4,
+        view: Mat4,
+        projection: Mat4,
+    ) void {
+        const uniforms = Uniforms.init(model_matrix, view, projection);
+        self.pushUniforms(uniforms);
+
+        const mat_uniforms = MaterialUniforms.fromMaterial(material);
+        self.pushMaterialUniforms(mat_uniforms);
+
+        self.pushForwardPlusUniforms(view);
+
+        self.bindPBRTextures(material);
+        self.bindIBLTextures();
+        self.bindForwardPlusStorageBuffers();
 
         self.drawMesh(mesh);
     }

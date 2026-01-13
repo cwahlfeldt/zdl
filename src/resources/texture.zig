@@ -1,6 +1,6 @@
 const std = @import("std");
 const sdl = @import("sdl3");
-const Color = @import("../engine/engine.zig").Color;
+const Color = @import("../render/render.zig").Color;
 
 /// Texture resource that wraps SDL GPU texture
 pub const Texture = struct {

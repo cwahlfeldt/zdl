@@ -387,6 +387,28 @@ pub fn build(b: *std.Build) void {
     const run_window_js_step = b.step("run-window-js", "Run Window from JS example");
     run_window_js_step.dependOn(&run_window_js.step);
 
+    // Build Forward+ Demo example
+    const forward_plus_demo = b.addExecutable(.{
+        .name = "forward_plus_demo",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("examples/forward_plus_demo/main.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    forward_plus_demo.root_module.addImport("sdl3", sdl3.module("sdl3"));
+    forward_plus_demo.root_module.addImport("engine", engine_module);
+    b.installArtifact(forward_plus_demo);
+
+    // Forward+ Demo run step
+    const run_forward_plus_demo = b.addRunArtifact(forward_plus_demo);
+    run_forward_plus_demo.step.dependOn(b.getInstallStep());
+    if (b.args) |args| {
+        run_forward_plus_demo.addArgs(args);
+    }
+    const run_forward_plus_step = b.step("run-forward-plus", "Run Forward+ Clustered Rendering Demo");
+    run_forward_plus_step.dependOn(&run_forward_plus_demo.step);
+
     // Note: Shader compilation is handled by the asset pipeline tool (zdl-assets)
     // Run: zig build assets -- build --source=src/shaders --output=src/shaders
     // Or:  ./zig-out/bin/zdl-assets build --source=assets --output=build/assets

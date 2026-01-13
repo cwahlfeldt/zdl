@@ -14,5 +14,5 @@ pub const StatsOverlay = @import("stats_overlay.zig").StatsOverlay;
 pub const RenderStats = @import("stats_overlay.zig").RenderStats;
 pub const StatsOverlayConfig = @import("stats_overlay.zig").StatsOverlayConfig;
 
-// Re-export common types from engine
-pub const Color = @import("../engine/engine.zig").Color;
+// Re-export common types from render module
+pub const Color = @import("../render/render.zig").Color;

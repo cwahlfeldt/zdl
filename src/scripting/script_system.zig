@@ -3,7 +3,6 @@ const quickjs = @import("quickjs");
 
 const Entity = @import("../ecs/entity.zig").Entity;
 const Scene = @import("../ecs/scene.zig").Scene;
-const Engine = @import("../engine/engine.zig").Engine;
 const Input = @import("../input/input.zig").Input;
 const TransformComponent = @import("../ecs/components/transform_component.zig").TransformComponent;
 
@@ -11,6 +10,7 @@ const JSRuntime = @import("js_runtime.zig").JSRuntime;
 const JSContext = @import("js_context.zig").JSContext;
 const ScriptComponent = @import("script_component.zig").ScriptComponent;
 const SystemRegistry = @import("system_registry.zig").SystemRegistry;
+const ScriptContext = @import("script_context.zig").ScriptContext;
 const bindings = @import("bindings/bindings.zig");
 
 const math_api = @import("bindings/math_api.zig");
@@ -138,7 +138,7 @@ pub const ScriptSystem = struct {
     pub fn update(
         self: *Self,
         scene: *Scene,
-        engine: *Engine,
+        script_ctx: *const ScriptContext,
         input: *Input,
         delta_time: f32,
     ) void {
@@ -154,7 +154,7 @@ pub const ScriptSystem = struct {
         // Set up binding context
         var ctx = bindings.BindingContext{
             .js_ctx = self.context,
-            .engine = engine,
+            .script_ctx = script_ctx,
             .scene = scene,
             .input = input,
             .delta_time = delta_time,
@@ -169,10 +169,10 @@ pub const ScriptSystem = struct {
             self.context,
             delta_time,
             self.total_time,
-            60, // TODO: get actual FPS
-            engine.window_width,
-            engine.window_height,
-            engine.input.mouse_captured,
+            @as(u32, @intFromFloat(script_ctx.fps)),
+            script_ctx.window_width,
+            script_ctx.window_height,
+            script_ctx.mouse_captured,
         );
 
         // Update input state in JavaScript
@@ -205,12 +205,12 @@ pub const ScriptSystem = struct {
 
         // Check for engine quit request
         if (engine_api.checkQuitRequested(self.context)) {
-            engine.should_quit = true;
+            script_ctx.requestQuit();
         }
 
         // Check for mouse capture request
         if (engine_api.checkMouseCaptureRequest(self.context)) |captured| {
-            engine.setMouseCapture(captured);
+            script_ctx.setMouseCapture(captured);
         }
 
         // Check for gamepad rumble request
@@ -237,7 +237,7 @@ pub const ScriptSystem = struct {
         query_api.processNativeCache(self.context, scene, self.allocator);
 
         // Sync JS components to native components for rendering
-        component_sync.syncComponentsToNative(self.context, scene, self.allocator, &engine.device) catch |err| {
+        component_sync.syncComponentsToNative(self.context, scene, self.allocator, script_ctx.getDevice()) catch |err| {
             std.debug.print("[ScriptSystem] Error syncing components to native: {}\n", .{err});
         };
 

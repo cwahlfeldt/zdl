@@ -17,19 +17,35 @@ const CameraComponent = components.CameraComponent;
 const MeshRendererComponent = components.MeshRendererComponent;
 const LightComponent = components.LightComponent;
 
+/// Pipeline mode for rendering
+const PipelineMode = enum {
+    legacy,
+    pbr,
+    forward_plus,
+};
+
 /// Context for rendering iteration
 const RenderContext = struct {
     frame: *RenderFrame,
     view: Mat4,
     projection: Mat4,
     has_pbr: bool,
-    current_pipeline_is_pbr: ?bool,
+    has_forward_plus: bool,
+    current_pipeline: ?PipelineMode,
 };
 
 /// Context for light update iteration
 const LightContext = struct {
     manager: *RenderManager,
     camera_pos: Vec3,
+};
+
+/// Forward+ manager import
+const ForwardPlusManager = @import("../../render/forward_plus.zig").ForwardPlusManager;
+
+/// Context for Forward+ light iteration
+const ForwardPlusLightContext = struct {
+    fp: *ForwardPlusManager,
 };
 
 /// Render system that draws all MeshRenderer components in the scene.
@@ -74,12 +90,40 @@ pub const RenderSystem = struct {
         const view = Mat4.lookAt(cam_pos, cam_target, cam_up);
         const projection = camera.getProjectionMatrix(aspect);
 
-        // Check if PBR is available
+        // Check what features are available
         const has_pbr = manager.hasPBR();
+        const has_forward_plus = manager.hasForwardPlus();
 
-        // If PBR available, update light uniforms from scene
-        if (has_pbr) {
+        // Update light uniforms from scene
+        if (has_pbr or has_forward_plus) {
             updateLightsFromScene(scene, manager, cam_pos);
+        }
+
+        // If Forward+ is enabled, also populate the Forward+ light lists
+        if (has_forward_plus) {
+            if (manager.getForwardPlusManager()) |fp| {
+                fp.clearLights();
+                fp.setViewProjection(view, projection, manager.window_width, manager.window_height);
+
+                // Add lights to Forward+ manager
+                var fp_ctx = ForwardPlusLightContext{
+                    .fp = fp,
+                };
+                scene.iterateLights(addForwardPlusLight, @ptrCast(&fp_ctx));
+
+                const cull_cmd = manager.device.acquireCommandBuffer() catch |err| {
+                    std.debug.print("Forward+ cull: acquire command buffer failed: {}\n", .{err});
+                    return;
+                };
+                if (fp.cullLights(&manager.device, cull_cmd)) |_| {
+                    cull_cmd.submit() catch |err| {
+                        std.debug.print("Forward+ cull: submit failed: {}\n", .{err});
+                    };
+                } else |err| {
+                    std.debug.print("Forward+ cull failed: {}\n", .{err});
+                    _ = cull_cmd.submit() catch {};
+                }
+            }
         }
 
         // Render skybox first (depth write disabled).
@@ -91,7 +135,8 @@ pub const RenderSystem = struct {
             .view = view,
             .projection = projection,
             .has_pbr = has_pbr,
-            .current_pipeline_is_pbr = null,
+            .has_forward_plus = has_forward_plus,
+            .current_pipeline = null,
         };
         scene.iterateMeshRenderers(renderMesh, @ptrCast(&ctx));
     }
@@ -107,13 +152,30 @@ pub const RenderSystem = struct {
         const mesh = renderer.getMesh() orelse return;
 
         // Decide which pipeline to use
-        const use_pbr = ctx.has_pbr and renderer.hasMaterial();
+        const has_material = renderer.hasMaterial();
+        const use_forward_plus = ctx.has_forward_plus and has_material;
+        const use_pbr = ctx.has_pbr and has_material and !use_forward_plus;
 
-        if (use_pbr) {
+        if (use_forward_plus) {
+            // Forward+ rendering path (clustered lighting)
+            if (ctx.current_pipeline != .forward_plus) {
+                _ = ctx.frame.bindForwardPlusPipeline();
+                ctx.current_pipeline = .forward_plus;
+            }
+
+            var material = renderer.material.?;
+            if (material.base_color_texture == null) {
+                if (renderer.getTexture()) |tex| {
+                    material.base_color_texture = tex;
+                }
+            }
+
+            ctx.frame.drawMeshForwardPlus(mesh.*, material, transform.world_matrix, ctx.view, ctx.projection);
+        } else if (use_pbr) {
             // PBR rendering path
-            if (ctx.current_pipeline_is_pbr != true) {
+            if (ctx.current_pipeline != .pbr) {
                 _ = ctx.frame.bindPBRPipeline();
-                ctx.current_pipeline_is_pbr = true;
+                ctx.current_pipeline = .pbr;
             }
 
             var material = renderer.material.?;
@@ -144,9 +206,9 @@ pub const RenderSystem = struct {
             ctx.frame.drawMesh(mesh.*);
         } else {
             // Legacy rendering path
-            if (ctx.current_pipeline_is_pbr != false) {
+            if (ctx.current_pipeline != .legacy) {
                 ctx.frame.bindPipeline();
-                ctx.current_pipeline_is_pbr = false;
+                ctx.current_pipeline = .legacy;
             }
 
             // Bind texture
@@ -216,6 +278,47 @@ pub const RenderSystem = struct {
                     light.inner_angle,
                     light.outer_angle,
                 );
+            },
+        }
+    }
+
+    /// Callback for adding a light to Forward+ manager
+    fn addForwardPlusLight(entity: Entity, transform: *TransformComponent, light: *LightComponent, userdata: *anyopaque) void {
+        _ = entity;
+        const ctx: *ForwardPlusLightContext = @ptrCast(@alignCast(userdata));
+
+        // Get light position from world matrix
+        const light_pos = Vec3.init(
+            transform.world_matrix.data[12],
+            transform.world_matrix.data[13],
+            transform.world_matrix.data[14],
+        );
+
+        // Get light direction (forward vector)
+        const light_dir = Vec3.init(
+            transform.world_matrix.data[8],
+            transform.world_matrix.data[9],
+            transform.world_matrix.data[10],
+        ).normalize();
+
+        // Add light based on type (Forward+ handles point and spot lights)
+        switch (light.light_type) {
+            .directional => {
+                // Directional lights are handled via uniforms, not clustered
+            },
+            .point => {
+                ctx.fp.addPointLight(light_pos, light.range, light.color, light.intensity) catch {};
+            },
+            .spot => {
+                ctx.fp.addSpotLight(
+                    light_pos,
+                    light.range,
+                    light_dir,
+                    light.outer_angle,
+                    light.inner_angle,
+                    light.color,
+                    light.intensity,
+                ) catch {};
             },
         }
     }

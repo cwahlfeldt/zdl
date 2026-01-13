@@ -23,6 +23,16 @@ pub const MouseButton = enum {
     left,
     middle,
     right,
+
+    /// Convert from SDL mouse button
+    pub fn fromSdl(button: sdl.mouse.Button) ?MouseButton {
+        return switch (button) {
+            .left => .left,
+            .middle => .middle,
+            .right => .right,
+            else => null,
+        };
+    }
 };
 
 /// Input device type for tracking last active device

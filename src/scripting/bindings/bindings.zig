@@ -6,16 +6,16 @@ const Vec3 = @import("../../math/vec3.zig").Vec3;
 const Vec2 = @import("../../math/vec2.zig").Vec2;
 const Quat = @import("../../math/quat.zig").Quat;
 
-const Engine = @import("../../engine/engine.zig").Engine;
 const Scene = @import("../../ecs/scene.zig").Scene;
 const Input = @import("../../input/input.zig").Input;
 const JSContext = @import("../js_context.zig").JSContext;
+const ScriptContext = @import("../script_context.zig").ScriptContext;
 
 /// Context passed to all native function callbacks.
 /// Stored in thread-local storage for access from C callbacks.
 pub const BindingContext = struct {
     js_ctx: *JSContext,
-    engine: *Engine,
+    script_ctx: *const ScriptContext,
     scene: *Scene,
     input: *Input,
     delta_time: f32,

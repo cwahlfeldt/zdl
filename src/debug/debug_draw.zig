@@ -4,7 +4,7 @@ const sdl = @import("sdl3");
 const Vec3 = @import("../math/vec3.zig").Vec3;
 const Vec2 = @import("../math/vec2.zig").Vec2;
 const Mat4 = @import("../math/mat4.zig").Mat4;
-const Color = @import("../engine/engine.zig").Color;
+const Color = @import("../render/render.zig").Color;
 
 /// Vertex format for debug line rendering (position + color)
 pub const LineVertex = struct {

@@ -13,8 +13,8 @@ pub const Style = @import("style.zig").Style;
 pub const Theme = @import("style.zig").Theme;
 pub const Insets = @import("style.zig").Insets;
 
-// Re-export common types from engine
-pub const Color = @import("../engine/engine.zig").Color;
+// Re-export common types from render module
+pub const Color = @import("../render/render.zig").Color;
 pub const Vec2 = @import("../math/vec2.zig").Vec2;
 
 // Common UI types
