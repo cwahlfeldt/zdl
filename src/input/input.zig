@@ -31,7 +31,12 @@ pub const InputDevice = enum {
     gamepad,
 };
 
-/// Input manager for tracking keyboard, mouse, and gamepad state
+/// Input manager for tracking keyboard, mouse, and gamepad state.
+///
+/// This struct provides both SDL event processing (via processEvent) and
+/// direct state-setting methods (setKeyDown, setMousePosition, etc.) for
+/// testability. In production, use processEvent. For unit tests, use the
+/// direct setters to mock input without SDL.
 pub const Input = struct {
     allocator: std.mem.Allocator,
     keys: std.AutoHashMap(sdl.Scancode, KeyState),
@@ -44,6 +49,12 @@ pub const Input = struct {
     mouse_left: bool = false,
     mouse_right: bool = false,
     mouse_middle: bool = false,
+    mouse_left_just_pressed: bool = false,
+    mouse_right_just_pressed: bool = false,
+    mouse_middle_just_pressed: bool = false,
+    mouse_left_just_released: bool = false,
+    mouse_right_just_released: bool = false,
+    mouse_middle_just_released: bool = false,
     mouse_captured: bool = false,
 
     // Gamepad state
@@ -65,12 +76,107 @@ pub const Input = struct {
         return input;
     }
 
+    // ============ Direct State-Setting Methods (for testing) ============
+    // These methods allow setting input state without SDL events.
+
+    /// Set a key as pressed. If already down, this is a repeat.
+    pub fn setKeyDown(self: *Input, scancode: sdl.Scancode, repeat: bool) void {
+        const result = self.keys.getOrPut(scancode) catch return;
+        if (!result.found_existing) {
+            result.value_ptr.* = .{};
+        }
+
+        if (!result.value_ptr.down and !repeat) {
+            result.value_ptr.just_pressed = true;
+        }
+        result.value_ptr.down = true;
+        self.last_input_device = .keyboard_mouse;
+    }
+
+    /// Set a key as released.
+    pub fn setKeyUp(self: *Input, scancode: sdl.Scancode) void {
+        const result = self.keys.getOrPut(scancode) catch return;
+        if (!result.found_existing) {
+            result.value_ptr.* = .{};
+        }
+
+        if (result.value_ptr.down) {
+            result.value_ptr.just_released = true;
+        }
+        result.value_ptr.down = false;
+    }
+
+    /// Set mouse position directly.
+    pub fn setMousePosition(self: *Input, x: f32, y: f32) void {
+        self.mouse_x = x;
+        self.mouse_y = y;
+        self.last_input_device = .keyboard_mouse;
+    }
+
+    /// Add to mouse delta (accumulates within frame).
+    pub fn setMouseDelta(self: *Input, dx: f32, dy: f32) void {
+        self.mouse_delta_x += dx;
+        self.mouse_delta_y += dy;
+        self.last_input_device = .keyboard_mouse;
+    }
+
+    /// Set mouse button state.
+    pub fn setMouseButton(self: *Input, button: MouseButton, down: bool) void {
+        self.last_input_device = .keyboard_mouse;
+        switch (button) {
+            .left => {
+                if (down and !self.mouse_left) {
+                    self.mouse_left_just_pressed = true;
+                } else if (!down and self.mouse_left) {
+                    self.mouse_left_just_released = true;
+                }
+                self.mouse_left = down;
+            },
+            .middle => {
+                if (down and !self.mouse_middle) {
+                    self.mouse_middle_just_pressed = true;
+                } else if (!down and self.mouse_middle) {
+                    self.mouse_middle_just_released = true;
+                }
+                self.mouse_middle = down;
+            },
+            .right => {
+                if (down and !self.mouse_right) {
+                    self.mouse_right_just_pressed = true;
+                } else if (!down and self.mouse_right) {
+                    self.mouse_right_just_released = true;
+                }
+                self.mouse_right = down;
+            },
+        }
+    }
+
+    /// Reset all input state. Useful for tests.
+    pub fn reset(self: *Input) void {
+        self.keys.clearRetainingCapacity();
+        self.mouse_x = 0;
+        self.mouse_y = 0;
+        self.mouse_delta_x = 0;
+        self.mouse_delta_y = 0;
+        self.mouse_left = false;
+        self.mouse_right = false;
+        self.mouse_middle = false;
+        self.mouse_left_just_pressed = false;
+        self.mouse_right_just_pressed = false;
+        self.mouse_middle_just_pressed = false;
+        self.mouse_left_just_released = false;
+        self.mouse_right_just_released = false;
+        self.mouse_middle_just_released = false;
+        self.last_input_device = .keyboard_mouse;
+    }
+
     pub fn deinit(self: *Input) void {
         self.gamepads.deinit();
         self.keys.deinit();
     }
 
-    /// Call this at the start of each frame to reset just_pressed/just_released flags
+    /// Call this at the start of each frame to reset just_pressed/just_released flags.
+    /// This is called by the Engine at the beginning of each frame.
     pub fn update(self: *Input) void {
         var it = self.keys.iterator();
         while (it.next()) |entry| {
@@ -82,8 +188,22 @@ pub const Input = struct {
         self.mouse_delta_x = 0;
         self.mouse_delta_y = 0;
 
+        // Reset mouse button just_pressed/just_released flags
+        self.mouse_left_just_pressed = false;
+        self.mouse_right_just_pressed = false;
+        self.mouse_middle_just_pressed = false;
+        self.mouse_left_just_released = false;
+        self.mouse_right_just_released = false;
+        self.mouse_middle_just_released = false;
+
         // Reset gamepad frame state
         self.gamepads.update();
+    }
+
+    /// Call this at the end of each frame (alternative to update at start).
+    /// Use either update() at frame start OR endFrame() at frame end, not both.
+    pub fn endFrame(self: *Input) void {
+        self.update();
     }
 
     /// Process SDL keyboard, mouse, and gamepad events
@@ -182,6 +302,24 @@ pub const Input = struct {
             .left => self.mouse_left,
             .middle => self.mouse_middle,
             .right => self.mouse_right,
+        };
+    }
+
+    /// Check if a mouse button was just pressed this frame
+    pub fn isMouseButtonJustPressed(self: *const Input, button: MouseButton) bool {
+        return switch (button) {
+            .left => self.mouse_left_just_pressed,
+            .middle => self.mouse_middle_just_pressed,
+            .right => self.mouse_right_just_pressed,
+        };
+    }
+
+    /// Check if a mouse button was just released this frame
+    pub fn isMouseButtonJustReleased(self: *const Input, button: MouseButton) bool {
+        return switch (button) {
+            .left => self.mouse_left_just_released,
+            .middle => self.mouse_middle_just_released,
+            .right => self.mouse_right_just_released,
         };
     }
 

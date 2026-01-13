@@ -1,5 +1,13 @@
 # ZDL JavaScript API Implementation Plan
 
+> **STATUS: ON HOLD**
+>
+> This plan documents the "JavaScript-first engine" direction. Development is paused while the underlying engine architecture is being modularized. See [MODULARIZATION_PLAN.md](MODULARIZATION_PLAN.md) for current priorities.
+>
+> The scripting support described here partially exists and works, but the full vision (JS as entry point, `zdl` CLI as primary workflow) is not yet realized.
+
+---
+
 This document describes the architecture, systems, and implementation steps required to realize the ideal game development experience shown in `ideal-game-dev-experience.js`.
 
 ## Table of Contents

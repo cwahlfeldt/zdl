@@ -92,6 +92,8 @@ Actions:
 
 ### 2) Split Engine into focused subsystems
 
+**Status: PLANNED** - See [MODULARIZATION_PLAN.md](MODULARIZATION_PLAN.md) for detailed implementation plan.
+
 Goals:
 
 - Make ownership and responsibilities explicit.
@@ -99,13 +101,12 @@ Goals:
 
 Suggested split of `Engine`:
 
-- `WindowSystem` (SDL window and event plumbing)
-- `Renderer` (pipelines, frame submission, render graph, GPU resources)
-- `InputSystem` (already exists, but keep the owner separate from rendering)
-- `AudioSystem` (device ownership and mixer)
-- `ScriptingSystem` (runtime and bindings)
-- `AssetSystem` (lifetime-managed asset handles and streaming)
-- `SceneSystem` (world, ECS systems, and scene lifecycle)
+- `WindowManager` (SDL window and event polling)
+- `RenderManager` (pipelines, frame submission, GPU resources)
+- `Input` (already exists, refactor to receive events from Engine)
+- `Audio` (device ownership and mixer)
+- `ScriptSystem` (runtime and bindings, receives ScriptContext)
+- `AssetManager` (lifetime-managed asset handles)
 
 A thin `Engine` can then orchestrate these with a clear update order.
 

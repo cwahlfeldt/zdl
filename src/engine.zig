@@ -7,6 +7,15 @@ pub const EngineConfig = @import("engine/engine.zig").EngineConfig;
 pub const RenderFrame = @import("engine/engine.zig").RenderFrame;
 pub const Color = @import("engine/engine.zig").Color;
 
+// Window Module
+pub const window = @import("window/window.zig");
+pub const WindowManager = window.WindowManager;
+pub const WindowConfig = window.WindowConfig;
+
+// Render Module
+pub const render = @import("render/render.zig");
+pub const RenderManager = render.RenderManager;
+
 // Subsystems
 pub const Input = @import("input/input.zig").Input;
 pub const MouseButton = @import("input/input.zig").MouseButton;

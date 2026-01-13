@@ -1,8 +1,8 @@
 const std = @import("std");
 const Scene = @import("../scene.zig").Scene;
 const Entity = @import("../entity.zig").Entity;
-const RenderFrame = @import("../../engine/engine.zig").RenderFrame;
-const Engine = @import("../../engine/engine.zig").Engine;
+const RenderFrame = @import("../../render/render_manager.zig").RenderFrame;
+const RenderManager = @import("../../render/render_manager.zig").RenderManager;
 const Uniforms = @import("../../gpu/uniforms.zig").Uniforms;
 const LightUniforms = @import("../../gpu/uniforms.zig").LightUniforms;
 const MaterialUniforms = @import("../../resources/material.zig").MaterialUniforms;
@@ -28,15 +28,22 @@ const RenderContext = struct {
 
 /// Context for light update iteration
 const LightContext = struct {
-    engine: *Engine,
+    manager: *RenderManager,
     camera_pos: Vec3,
 };
 
 /// Render system that draws all MeshRenderer components in the scene.
+/// Now decoupled from Engine - uses RenderManager instead.
 pub const RenderSystem = struct {
     /// Render all mesh renderers in the scene using the active camera.
     /// Automatically uses PBR pipeline for entities with materials, legacy pipeline otherwise.
+    /// This overload gets the manager from the frame for backwards compatibility.
     pub fn render(scene: *Scene, frame: *RenderFrame) void {
+        renderWithManager(scene, frame, frame.manager);
+    }
+
+    /// Render all mesh renderers with an explicit RenderManager reference.
+    pub fn renderWithManager(scene: *Scene, frame: *RenderFrame, manager: *RenderManager) void {
         // Get active camera
         const camera_entity = scene.getActiveCamera();
         if (!camera_entity.isValid()) return;
@@ -45,8 +52,8 @@ pub const RenderSystem = struct {
         const camera_transform = scene.getComponent(TransformComponent, camera_entity) orelse return;
 
         // Compute view and projection matrices
-        const width: f32 = @floatFromInt(frame.engine.window_width);
-        const height: f32 = @floatFromInt(frame.engine.window_height);
+        const width: f32 = @floatFromInt(manager.window_width);
+        const height: f32 = @floatFromInt(manager.window_height);
         const aspect = width / height;
 
         // Get camera position and forward direction from world matrix
@@ -68,11 +75,11 @@ pub const RenderSystem = struct {
         const projection = camera.getProjectionMatrix(aspect);
 
         // Check if PBR is available
-        const has_pbr = frame.engine.hasPBR();
+        const has_pbr = manager.hasPBR();
 
         // If PBR available, update light uniforms from scene
         if (has_pbr) {
-            updateLightsFromScene(scene, frame.engine, cam_pos);
+            updateLightsFromScene(scene, manager, cam_pos);
         }
 
         // Render skybox first (depth write disabled).
@@ -124,8 +131,8 @@ pub const RenderSystem = struct {
             const mat_uniforms = MaterialUniforms.fromMaterial(material);
             ctx.frame.pushMaterialUniforms(mat_uniforms);
 
-            // Push light uniforms
-            ctx.frame.pushLightUniforms(ctx.frame.engine.light_uniforms);
+            // Push light uniforms (from manager, not engine)
+            ctx.frame.pushLightUniforms(ctx.frame.manager.light_uniforms);
 
             // Bind textures
             ctx.frame.bindPBRTextures(material);
@@ -158,15 +165,15 @@ pub const RenderSystem = struct {
         }
     }
 
-    /// Collect lights from the scene and update engine's light uniforms.
-    fn updateLightsFromScene(scene: *Scene, engine: *Engine, camera_pos: Vec3) void {
+    /// Collect lights from the scene and update manager's light uniforms.
+    fn updateLightsFromScene(scene: *Scene, manager: *RenderManager, camera_pos: Vec3) void {
         // Reset light uniforms
-        engine.light_uniforms.clearDynamicLights();
-        engine.light_uniforms.setCameraPosition(camera_pos);
+        manager.light_uniforms.clearDynamicLights();
+        manager.light_uniforms.setCameraPosition(camera_pos);
 
         // Iterate all lights
         var ctx = LightContext{
-            .engine = engine,
+            .manager = manager,
             .camera_pos = camera_pos,
         };
         scene.iterateLights(processLight, @ptrCast(&ctx));
@@ -194,13 +201,13 @@ pub const RenderSystem = struct {
         // Add light based on type
         switch (light.light_type) {
             .directional => {
-                ctx.engine.light_uniforms.setDirectionalLight(light_dir, light.color, light.intensity);
+                ctx.manager.light_uniforms.setDirectionalLight(light_dir, light.color, light.intensity);
             },
             .point => {
-                _ = ctx.engine.light_uniforms.addPointLight(light_pos, light.range, light.color, light.intensity);
+                _ = ctx.manager.light_uniforms.addPointLight(light_pos, light.range, light.color, light.intensity);
             },
             .spot => {
-                _ = ctx.engine.light_uniforms.addSpotLight(
+                _ = ctx.manager.light_uniforms.addSpotLight(
                     light_pos,
                     light_dir,
                     light.range,

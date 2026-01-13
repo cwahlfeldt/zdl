@@ -11,9 +11,11 @@ This document outlines the comprehensive development plan to evolve ZDL from its
 | Phase 1: Core Infrastructure | ✅ Complete | 3/3 complete |
 | Phase 2: Content Creation | ✅ Complete | 3/3 complete |
 | Phase 3: Visual Quality | 🟡 In Progress | 1/3 complete |
-| Phase 4: Interactivity | 🟡 In Progress | 1/3 complete |
-| Phase 5: Extensibility | Not Started | 0/2 |
+| Phase 4: Interactivity | 🟡 In Progress | 2/3 complete |
+| Phase 5: Extensibility | 🟡 Partial/On Hold | Scripting exists, on hold for modularization |
 | Phase 6: Platform Expansion | Not Started | 0/1 |
+
+**Current Focus:** Engine modularization (see [MODULARIZATION_PLAN.md](../../MODULARIZATION_PLAN.md))
 
 ## Current Engine State
 
@@ -178,10 +180,16 @@ Systems that enable gameplay.
 
 Systems that enable customization and iteration.
 
-| System                                             | Priority | Effort    | Dependencies       |
-| -------------------------------------------------- | -------- | --------- | ------------------ |
-| [JavaScript Scripting](07-javascript-scripting.md) | High     | High      | Scene, ECS         |
-| [Networking](14-networking.md)                     | Medium   | Very High | Physics (optional) |
+| System                                             | Priority | Effort    | Dependencies       | Status |
+| -------------------------------------------------- | -------- | --------- | ------------------ | ------ |
+| [JavaScript Scripting](07-javascript-scripting.md) | High     | High      | Scene, ECS         | 🟡 On Hold |
+| [Networking](14-networking.md)                     | Medium   | Very High | Physics (optional) | |
+
+**JavaScript Scripting Notes:**
+- Basic scripting support exists in `src/scripting/` with QuickJS integration
+- Hot-reload, lifecycle hooks (onStart/onUpdate/onDestroy), and JS API bindings work
+- The "JavaScript-first engine" direction (see `IMPLEMENTATION_PLAN.md`) is on hold
+- Engine modularization (see `MODULARIZATION_PLAN.md`) is the current priority before extending scripting
 
 **Rationale:** Scripting enables rapid iteration and modding. Networking unlocks multiplayer games.
 
