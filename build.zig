@@ -275,28 +275,6 @@ pub fn build(b: *std.Build) void {
     const run_helmet_cube_click_step = b.step("run-helmet-cube-click", "Run helmet cube click example");
     run_helmet_cube_click_step.dependOn(&run_helmet_cube_click.step);
 
-    // Build Raymarch PBR Demo example
-    const raymarch_pbr = b.addExecutable(.{
-        .name = "raymarch_pbr",
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("examples/raymarch_pbr/main.zig"),
-            .target = target,
-            .optimize = optimize,
-        }),
-    });
-    raymarch_pbr.root_module.addImport("sdl3", sdl3.module("sdl3"));
-    raymarch_pbr.root_module.addImport("engine", engine_module);
-    b.installArtifact(raymarch_pbr);
-
-    // Raymarch PBR Demo run step
-    const run_raymarch_pbr = b.addRunArtifact(raymarch_pbr);
-    run_raymarch_pbr.step.dependOn(b.getInstallStep());
-    if (b.args) |args| {
-        run_raymarch_pbr.addArgs(args);
-    }
-    const run_raymarch_pbr_step = b.step("run-raymarch-pbr", "Run Raymarch PBR Demo example");
-    run_raymarch_pbr_step.dependOn(&run_raymarch_pbr.step);
-
     // Build Gamepad Demo example
     const gamepad_demo = b.addExecutable(.{
         .name = "gamepad_demo",
