@@ -202,7 +202,6 @@ uint getClusterIndex(float3 frag_pos, float4 frag_coord, constant ForwardPlusUni
 
 fragment float4 pbr_forward_plus_fragment_main(
     Vertex3DOutput in [[stage_in]],
-    float4 frag_coord [[position]],
 
     constant MaterialUniforms& material [[buffer(0)]],
     constant ForwardPlusUniforms& forward_plus [[buffer(1)]],
@@ -304,7 +303,7 @@ fragment float4 pbr_forward_plus_fragment_main(
     }
 
     // Get cluster for this fragment
-    uint cluster_idx = getClusterIndex(in.world_pos, frag_coord, forward_plus);
+    uint cluster_idx = getClusterIndex(in.world_pos, in.position, forward_plus);
     LightGrid grid = light_grid[cluster_idx];
 
     // Process only lights in this cluster
