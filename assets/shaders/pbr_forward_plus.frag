@@ -84,21 +84,23 @@ layout (set = 3, binding = 1, std140) uniform ForwardPlusUBO {
 
 // Storage buffers for clustered lights
 // SDL3 GPU Fragment Shader Binding Layout (SPIR-V):
-//   Set 2: Sampled textures (0-7) -> Storage textures -> Storage buffers (8+)
+//   Set 2: Fragment samplers (bindings 0-7) + storage buffers (separate binding space, slots 0-3)
 //   Set 3: Uniform buffers
-layout (std430, set = 2, binding = 8) readonly buffer LightGridBuffer {
+// Note: SDL3 GPU uses separate binding spaces for samplers vs storage buffers within a set.
+// Storage buffers start at binding 0 in their own space, not binding 8.
+layout (std430, set = 2, binding = 0) readonly buffer LightGridBuffer {
     LightGrid light_grid[];
 };
 
-layout (std430, set = 2, binding = 9) readonly buffer LightIndexBuffer {
+layout (std430, set = 2, binding = 1) readonly buffer LightIndexBuffer {
     uint light_indices[];
 };
 
-layout (std430, set = 2, binding = 10) readonly buffer PointLightBuffer {
+layout (std430, set = 2, binding = 2) readonly buffer PointLightBuffer {
     PointLight point_lights[];
 };
 
-layout (std430, set = 2, binding = 11) readonly buffer SpotLightBuffer {
+layout (std430, set = 2, binding = 3) readonly buffer SpotLightBuffer {
     SpotLight spot_lights[];
 };
 
