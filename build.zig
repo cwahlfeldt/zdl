@@ -35,7 +35,6 @@ pub fn build(b: *std.Build) void {
     engine_module.linkLibrary(zflecs.artifact("flecs"));
     engine_module.addIncludePath(quickjs.path("."));
 
-
     // Build Asset Pipeline tool
     const zdl_assets = b.addExecutable(.{
         .name = "zdl-assets",
@@ -363,29 +362,29 @@ pub fn build(b: *std.Build) void {
     }
 
     // Build Window from JS example
-    const window_js_example = b.addExecutable(.{
-        .name = "window_js_example",
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("examples/window_from_js_example.zig"),
-            .target = target,
-            .optimize = optimize,
-        }),
-    });
-    window_js_example.root_module.addImport("sdl3", sdl3.module("sdl3"));
-    window_js_example.root_module.addImport("engine", engine_module);
-    b.installArtifact(window_js_example);
+    // const window_js_example = b.addExecutable(.{
+    //     .name = "window_js_example",
+    //     .root_module = b.createModule(.{
+    //         .root_source_file = b.path("examples/window_from_js_example.zig"),
+    //         .target = target,
+    //         .optimize = optimize,
+    //     }),
+    // });
+    // window_js_example.root_module.addImport("sdl3", sdl3.module("sdl3"));
+    // window_js_example.root_module.addImport("engine", engine_module);
+    // b.installArtifact(window_js_example);
 
-    // Window from JS example run step
-    const run_window_js = b.addRunArtifact(window_js_example);
-    run_window_js.step.dependOn(b.getInstallStep());
-    if (b.args) |args| {
-        run_window_js.addArgs(args);
-    }
-    const run_module_step = b.step("run-module", "Run Module Demo example");
-    run_module_step.dependOn(&run_module_demo.step);
+    // // Window from JS example run step
+    // const run_window_js = b.addRunArtifact(window_js_example);
+    // run_window_js.step.dependOn(b.getInstallStep());
+    // if (b.args) |args| {
+    //     run_window_js.addArgs(args);
+    // }
+    // const run_module_step = b.step("run-module", "Run Module Demo example");
+    // run_module_step.dependOn(&run_module_demo.step);
 
-    const run_window_js_step = b.step("run-window-js", "Run Window from JS example");
-    run_window_js_step.dependOn(&run_window_js.step);
+    // const run_window_js_step = b.step("run-window-js", "Run Window from JS example");
+    // run_window_js_step.dependOn(&run_window_js.step);
 
     // Build Forward+ Demo example
     const forward_plus_demo = b.addExecutable(.{
