@@ -3,9 +3,6 @@ const Scene = @import("../scene.zig").Scene;
 const Entity = @import("../entity.zig").Entity;
 const RenderFrame = @import("../../render/render_manager.zig").RenderFrame;
 const RenderManager = @import("../../render/render_manager.zig").RenderManager;
-const Uniforms = @import("../../gpu/uniforms.zig").Uniforms;
-const LightUniforms = @import("../../gpu/uniforms.zig").LightUniforms;
-const MaterialUniforms = @import("../../resources/material.zig").MaterialUniforms;
 const Material = @import("../../resources/material.zig").Material;
 const math = @import("../../math/math.zig");
 const Mat4 = math.Mat4;
@@ -17,21 +14,12 @@ const CameraComponent = components.CameraComponent;
 const MeshRendererComponent = components.MeshRendererComponent;
 const LightComponent = components.LightComponent;
 
-/// Pipeline mode for rendering
-const PipelineMode = enum {
-    legacy,
-    pbr,
-    forward_plus,
-};
-
 /// Context for rendering iteration
 const RenderContext = struct {
     frame: *RenderFrame,
     view: Mat4,
     projection: Mat4,
-    has_pbr: bool,
-    has_forward_plus: bool,
-    current_pipeline: ?PipelineMode,
+    pipeline_bound: bool,
 };
 
 /// Context for light update iteration
@@ -90,39 +78,36 @@ pub const RenderSystem = struct {
         const view = Mat4.lookAt(cam_pos, cam_target, cam_up);
         const projection = camera.getProjectionMatrix(aspect);
 
-        // Check what features are available
-        const has_pbr = manager.hasPBR();
-        const has_forward_plus = manager.hasForwardPlus();
-
-        // Update light uniforms from scene
-        if (has_pbr or has_forward_plus) {
-            updateLightsFromScene(scene, manager, cam_pos);
+        if (!manager.hasForwardPlus()) {
+            std.debug.print("Forward+ renderer not initialized; skipping render.\n", .{});
+            return;
         }
 
-        // If Forward+ is enabled, also populate the Forward+ light lists
-        if (has_forward_plus) {
-            if (manager.getForwardPlusManager()) |fp| {
-                fp.clearLights();
-                fp.setViewProjection(view, projection, manager.window_width, manager.window_height);
+        // Update light uniforms from scene
+        updateLightsFromScene(scene, manager, cam_pos);
 
-                // Add lights to Forward+ manager
-                var fp_ctx = ForwardPlusLightContext{
-                    .fp = fp,
-                };
-                scene.iterateLights(addForwardPlusLight, @ptrCast(&fp_ctx));
+        // Populate the Forward+ light lists
+        if (manager.getForwardPlusManager()) |fp| {
+            fp.clearLights();
+            fp.setViewProjection(view, projection, manager.window_width, manager.window_height);
 
-                const cull_cmd = manager.device.acquireCommandBuffer() catch |err| {
-                    std.debug.print("Forward+ cull: acquire command buffer failed: {}\n", .{err});
-                    return;
+            // Add lights to Forward+ manager
+            var fp_ctx = ForwardPlusLightContext{
+                .fp = fp,
+            };
+            scene.iterateLights(addForwardPlusLight, @ptrCast(&fp_ctx));
+
+            const cull_cmd = manager.device.acquireCommandBuffer() catch |err| {
+                std.debug.print("Forward+ cull: acquire command buffer failed: {}\n", .{err});
+                return;
+            };
+            if (fp.cullLights(&manager.device, cull_cmd)) |_| {
+                cull_cmd.submit() catch |err| {
+                    std.debug.print("Forward+ cull: submit failed: {}\n", .{err});
                 };
-                if (fp.cullLights(&manager.device, cull_cmd)) |_| {
-                    cull_cmd.submit() catch |err| {
-                        std.debug.print("Forward+ cull: submit failed: {}\n", .{err});
-                    };
-                } else |err| {
-                    std.debug.print("Forward+ cull failed: {}\n", .{err});
-                    _ = cull_cmd.submit() catch {};
-                }
+            } else |err| {
+                std.debug.print("Forward+ cull failed: {}\n", .{err});
+                _ = cull_cmd.submit() catch {};
             }
         }
 
@@ -134,9 +119,7 @@ pub const RenderSystem = struct {
             .frame = frame,
             .view = view,
             .projection = projection,
-            .has_pbr = has_pbr,
-            .has_forward_plus = has_forward_plus,
-            .current_pipeline = null,
+            .pipeline_bound = false,
         };
         scene.iterateMeshRenderers(renderMesh, @ptrCast(&ctx));
     }
@@ -151,80 +134,19 @@ pub const RenderSystem = struct {
         // Get the mesh from cached pointer (set by legacy API or resolved from handle)
         const mesh = renderer.getMesh() orelse return;
 
-        // Decide which pipeline to use
-        const has_material = renderer.hasMaterial();
-        const use_forward_plus = ctx.has_forward_plus and has_material;
-        const use_pbr = ctx.has_pbr and has_material and !use_forward_plus;
-
-        if (use_forward_plus) {
-            // Forward+ rendering path (clustered lighting)
-            if (ctx.current_pipeline != .forward_plus) {
-                _ = ctx.frame.bindForwardPlusPipeline();
-                ctx.current_pipeline = .forward_plus;
-            }
-
-            var material = renderer.material.?;
-            if (material.base_color_texture == null) {
-                if (renderer.getTexture()) |tex| {
-                    material.base_color_texture = tex;
-                }
-            }
-
-            ctx.frame.drawMeshForwardPlus(mesh.*, material, transform.world_matrix, ctx.view, ctx.projection);
-        } else if (use_pbr) {
-            // PBR rendering path
-            if (ctx.current_pipeline != .pbr) {
-                _ = ctx.frame.bindPBRPipeline();
-                ctx.current_pipeline = .pbr;
-            }
-
-            var material = renderer.material.?;
-            if (material.base_color_texture == null) {
-                if (renderer.getTexture()) |tex| {
-                    material.base_color_texture = tex;
-                }
-            }
-
-            // Push MVP uniforms
-            const uniforms = Uniforms.init(transform.world_matrix, ctx.view, ctx.projection);
-            ctx.frame.pushUniforms(uniforms);
-
-            // Push material uniforms
-            const mat_uniforms = MaterialUniforms.fromMaterial(material);
-            ctx.frame.pushMaterialUniforms(mat_uniforms);
-
-            // Push light uniforms (from manager, not engine)
-            ctx.frame.pushLightUniforms(ctx.frame.manager.light_uniforms);
-
-            // Bind textures
-            ctx.frame.bindPBRTextures(material);
-
-            // Bind IBL textures (slots 5-7)
-            ctx.frame.bindIBLTextures();
-
-            // Draw mesh
-            ctx.frame.drawMesh(mesh.*);
-        } else {
-            // Legacy rendering path
-            if (ctx.current_pipeline != .legacy) {
-                ctx.frame.bindPipeline();
-                ctx.current_pipeline = .legacy;
-            }
-
-            // Bind texture
-            if (renderer.getTexture()) |tex| {
-                ctx.frame.bindTexture(tex.*);
-            } else {
-                ctx.frame.bindDefaultTexture();
-            }
-
-            // Push uniforms with world matrix
-            const uniforms = Uniforms.init(transform.world_matrix, ctx.view, ctx.projection);
-            ctx.frame.pushUniforms(uniforms);
-
-            // Draw mesh
-            ctx.frame.drawMesh(mesh.*);
+        if (!ctx.pipeline_bound) {
+            if (!ctx.frame.bindForwardPlusPipeline()) return;
+            ctx.pipeline_bound = true;
         }
+
+        var material = renderer.material orelse Material.init();
+        if (material.base_color_texture == null) {
+            if (renderer.getTexture()) |tex| {
+                material.base_color_texture = tex;
+            }
+        }
+
+        ctx.frame.drawMeshForwardPlus(mesh.*, material, transform.world_matrix, ctx.view, ctx.projection);
     }
 
     /// Collect lights from the scene and update manager's light uniforms.

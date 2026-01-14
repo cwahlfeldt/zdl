@@ -13,6 +13,8 @@
 ## Progress
 - Removed raymarch demo + shaders and the build target.
 - Removed unused shader library and pipeline cache modules.
+- Forward+ is now the only render path; legacy/PBR pipeline code removed.
+- Legacy and PBR-only shader assets removed.
 
 ## Feature scope (Professional, not AAA)
 - Forward+ clustered lighting (GPU compute culling with CPU fallback).
@@ -45,6 +47,7 @@
   - Ensure `MAX_LIGHTS_PER_CLUSTER` is consistent across CPU config and compute shaders.
 
 ## Phase 2: Forward+ becomes the only 3D pipeline
+Status: complete.
 - Remove legacy + PBR pipeline selection from the render system.
   - Always bind Forward+ pipeline.
   - For meshes without a material, use a default `Material` and map `renderer.getTexture()` to base color.
@@ -54,7 +57,7 @@
 - Remove `forward_plus_enabled` toggles and PBR-only fields in `RenderManager` and `Engine`.
 
 ## Phase 3: Code + shader cleanup
-Status: raymarch removal and unused shader modules are complete. Legacy/PBR shader removal will follow once the Forward+ only path lands.
+Status: legacy/PBR shader removal complete.
 - Remove legacy shader files:
   - `assets/shaders/shaders.metal`
   - `assets/shaders/vertex.vert`

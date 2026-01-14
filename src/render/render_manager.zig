@@ -25,34 +25,6 @@ const EnvironmentMap = @import("../ibl/environment_map.zig").EnvironmentMap;
 // Platform-specific shader configuration
 const is_macos = builtin.os.tag == .macos;
 
-const ShaderConfig = if (is_macos) struct {
-    const format = sdl.gpu.ShaderFormatFlags{ .msl = true };
-    const vertex_path = "assets/shaders/shaders.metal";
-    const fragment_path = "assets/shaders/shaders.metal";
-    const vertex_entry = "vertex_main";
-    const fragment_entry = "fragment_main";
-} else struct {
-    const format = sdl.gpu.ShaderFormatFlags{ .spirv = true };
-    const vertex_path = "build/assets/shaders/vertex.spv";
-    const fragment_path = "build/assets/shaders/fragment.spv";
-    const vertex_entry = "main";
-    const fragment_entry = "main";
-};
-
-const PBRShaderConfig = if (is_macos) struct {
-    const format = sdl.gpu.ShaderFormatFlags{ .msl = true };
-    const vertex_path = "assets/shaders/pbr.metal";
-    const fragment_path = "assets/shaders/pbr.metal";
-    const vertex_entry = "pbr_vertex_main";
-    const fragment_entry = "pbr_fragment_main";
-} else struct {
-    const format = sdl.gpu.ShaderFormatFlags{ .spirv = true };
-    const vertex_path = "build/assets/shaders/pbr.vert.spv";
-    const fragment_path = "build/assets/shaders/pbr.frag.spv";
-    const vertex_entry = "main";
-    const fragment_entry = "main";
-};
-
 const SkyboxShaderConfig = if (is_macos) struct {
     const format = sdl.gpu.ShaderFormatFlags{ .msl = true };
     const vertex_path = "assets/shaders/skybox.metal";
@@ -111,14 +83,10 @@ pub const RenderManager = struct {
     device: sdl.gpu.Device,
     window: sdl.video.Window,
 
-    // Legacy pipeline
-    pipeline: sdl.gpu.GraphicsPipeline,
     depth_texture: ?sdl.gpu.Texture,
     white_texture: Texture,
     sampler: sdl.gpu.Sampler,
 
-    // PBR pipeline resources
-    pbr_pipeline: ?sdl.gpu.GraphicsPipeline,
     default_normal_texture: ?Texture,
     default_mr_texture: ?Texture,
     default_ao_texture: ?Texture,
@@ -137,7 +105,6 @@ pub const RenderManager = struct {
     // Forward+ resources
     forward_plus_manager: ?*ForwardPlusManager,
     forward_plus_pipeline: ?sdl.gpu.GraphicsPipeline,
-    forward_plus_enabled: bool,
 
     // Light uniforms (shared state for rendering)
     light_uniforms: LightUniforms,
@@ -147,101 +114,16 @@ pub const RenderManager = struct {
     window_height: u32,
     clear_color: Color,
 
-    /// Initialize the render manager with GPU device and basic pipeline
+    /// Initialize the render manager with GPU device and core resources
     pub fn init(allocator: std.mem.Allocator, window: sdl.video.Window, width: u32, height: u32) !RenderManager {
         const device = try sdl.gpu.Device.init(
-            ShaderConfig.format,
+            ForwardPlusShaderConfig.format,
             true,
             null,
         );
         errdefer device.deinit();
 
         try device.claimWindow(window);
-
-        // Load shaders
-        const vertex_code = try std.fs.cwd().readFileAlloc(
-            allocator,
-            ShaderConfig.vertex_path,
-            1024 * 1024,
-        );
-        defer allocator.free(vertex_code);
-
-        const fragment_code = if (is_macos)
-            vertex_code
-        else
-            try std.fs.cwd().readFileAlloc(
-                allocator,
-                ShaderConfig.fragment_path,
-                1024 * 1024,
-            );
-        defer if (!is_macos) allocator.free(fragment_code);
-
-        const vertex_shader = try device.createShader(.{
-            .code = vertex_code,
-            .entry_point = ShaderConfig.vertex_entry,
-            .format = ShaderConfig.format,
-            .stage = .vertex,
-            .num_samplers = 0,
-            .num_storage_buffers = 0,
-            .num_storage_textures = 0,
-            .num_uniform_buffers = 1,
-        });
-        defer device.releaseShader(vertex_shader);
-
-        const fragment_shader = try device.createShader(.{
-            .code = fragment_code,
-            .entry_point = ShaderConfig.fragment_entry,
-            .format = ShaderConfig.format,
-            .stage = .fragment,
-            .num_samplers = 1,
-            .num_storage_buffers = 0,
-            .num_storage_textures = 0,
-            .num_uniform_buffers = 0,
-        });
-        defer device.releaseShader(fragment_shader);
-
-        const vertex_buffer_desc = Mesh.getVertexBufferDesc();
-        const vertex_attributes = Mesh.getVertexAttributes();
-
-        const color_target_desc = sdl.gpu.ColorTargetDescription{
-            .format = try device.getSwapchainTextureFormat(window),
-            .blend_state = .{
-                .enable_blend = false,
-                .color_blend = .add,
-                .alpha_blend = .add,
-                .source_color = .one,
-                .source_alpha = .one,
-                .destination_color = .zero,
-                .destination_alpha = .zero,
-                .enable_color_write_mask = true,
-                .color_write_mask = .{ .red = true, .green = true, .blue = true, .alpha = true },
-            },
-        };
-
-        const pipeline = try device.createGraphicsPipeline(.{
-            .vertex_shader = vertex_shader,
-            .fragment_shader = fragment_shader,
-            .primitive_type = .triangle_list,
-            .vertex_input_state = .{
-                .vertex_buffer_descriptions = &[_]sdl.gpu.VertexBufferDescription{vertex_buffer_desc},
-                .vertex_attributes = &vertex_attributes,
-            },
-            .rasterizer_state = .{
-                .cull_mode = .back,
-                .front_face = .counter_clockwise,
-            },
-            .target_info = .{
-                .color_target_descriptions = &[_]sdl.gpu.ColorTargetDescription{color_target_desc},
-                .depth_stencil_format = .depth32_float,
-            },
-            .depth_stencil_state = .{
-                .enable_depth_test = true,
-                .enable_depth_write = true,
-                .compare = .less,
-                .enable_stencil_test = false,
-            },
-        });
-        errdefer device.releaseGraphicsPipeline(pipeline);
 
         // Create depth texture
         const depth_texture = try device.createTexture(.{
@@ -273,11 +155,9 @@ pub const RenderManager = struct {
             .allocator = allocator,
             .device = device,
             .window = window,
-            .pipeline = pipeline,
             .depth_texture = depth_texture,
             .white_texture = white_texture,
             .sampler = sampler,
-            .pbr_pipeline = null,
             .default_normal_texture = null,
             .default_mr_texture = null,
             .default_ao_texture = null,
@@ -290,7 +170,6 @@ pub const RenderManager = struct {
             .ibl_enabled = false,
             .forward_plus_manager = null,
             .forward_plus_pipeline = null,
-            .forward_plus_enabled = false,
             .light_uniforms = LightUniforms.default(),
             .window_width = width,
             .window_height = height,
@@ -303,8 +182,7 @@ pub const RenderManager = struct {
         var mutable_device = self.device;
         self.white_texture.deinit(&mutable_device);
 
-        // Clean up PBR resources
-        if (self.pbr_pipeline) |p| self.device.releaseGraphicsPipeline(p);
+        // Clean up material defaults
         if (self.default_normal_texture) |t| t.deinit(&mutable_device);
         if (self.default_mr_texture) |t| t.deinit(&mutable_device);
         if (self.default_ao_texture) |t| t.deinit(&mutable_device);
@@ -342,117 +220,36 @@ pub const RenderManager = struct {
         }
 
         if (self.depth_texture) |dt| self.device.releaseTexture(dt);
-        self.device.releaseGraphicsPipeline(self.pipeline);
         self.device.deinit();
     }
 
-    /// Initialize PBR pipeline and default textures
-    pub fn initPBR(self: *RenderManager) !void {
-        if (self.pbr_pipeline != null) return;
+    fn initMaterialDefaults(self: *RenderManager) !void {
+        if (self.default_normal_texture != null and
+            self.default_mr_texture != null and
+            self.default_ao_texture != null and
+            self.default_emissive_texture != null)
+        {
+            return;
+        }
 
         var mutable_device = self.device;
 
-        // Create default PBR textures
-        self.default_normal_texture = try Texture.createColored(&mutable_device, 1, 1, .{ 128, 128, 255, 255 });
-        errdefer if (self.default_normal_texture) |t| t.deinit(&mutable_device);
-
-        self.default_mr_texture = try Texture.createColored(&mutable_device, 1, 1, .{ 0, 128, 0, 255 });
-        errdefer if (self.default_mr_texture) |t| t.deinit(&mutable_device);
-
-        self.default_ao_texture = try Texture.createColored(&mutable_device, 1, 1, .{ 255, 255, 255, 255 });
-        errdefer if (self.default_ao_texture) |t| t.deinit(&mutable_device);
-
-        self.default_emissive_texture = try Texture.createColored(&mutable_device, 1, 1, .{ 0, 0, 0, 255 });
-        errdefer if (self.default_emissive_texture) |t| t.deinit(&mutable_device);
-
-        // Load PBR shaders
-        const pbr_vertex_code = try std.fs.cwd().readFileAlloc(
-            self.allocator,
-            PBRShaderConfig.vertex_path,
-            1024 * 1024,
-        );
-        defer self.allocator.free(pbr_vertex_code);
-
-        const pbr_fragment_code = if (is_macos)
-            pbr_vertex_code
-        else
-            try std.fs.cwd().readFileAlloc(
-                self.allocator,
-                PBRShaderConfig.fragment_path,
-                1024 * 1024,
-            );
-        defer if (!is_macos) self.allocator.free(pbr_fragment_code);
-
-        const pbr_vertex_shader = try self.device.createShader(.{
-            .code = pbr_vertex_code,
-            .entry_point = PBRShaderConfig.vertex_entry,
-            .format = PBRShaderConfig.format,
-            .stage = .vertex,
-            .num_samplers = 0,
-            .num_storage_buffers = 0,
-            .num_storage_textures = 0,
-            .num_uniform_buffers = 1,
-        });
-        defer self.device.releaseShader(pbr_vertex_shader);
-
-        const pbr_fragment_shader = try self.device.createShader(.{
-            .code = pbr_fragment_code,
-            .entry_point = PBRShaderConfig.fragment_entry,
-            .format = PBRShaderConfig.format,
-            .stage = .fragment,
-            .num_samplers = 8,
-            .num_storage_buffers = 0,
-            .num_storage_textures = 0,
-            .num_uniform_buffers = 2,
-        });
-        defer self.device.releaseShader(pbr_fragment_shader);
-
-        const vertex_buffer_desc = Mesh.getVertexBufferDesc();
-        const vertex_attributes = Mesh.getVertexAttributes();
-
-        const color_target_desc = sdl.gpu.ColorTargetDescription{
-            .format = try self.device.getSwapchainTextureFormat(self.window),
-            .blend_state = .{
-                .enable_blend = false,
-                .color_blend = .add,
-                .alpha_blend = .add,
-                .source_color = .one,
-                .source_alpha = .one,
-                .destination_color = .zero,
-                .destination_alpha = .zero,
-                .enable_color_write_mask = true,
-                .color_write_mask = .{ .red = true, .green = true, .blue = true, .alpha = true },
-            },
-        };
-
-        self.pbr_pipeline = try self.device.createGraphicsPipeline(.{
-            .vertex_shader = pbr_vertex_shader,
-            .fragment_shader = pbr_fragment_shader,
-            .primitive_type = .triangle_list,
-            .vertex_input_state = .{
-                .vertex_buffer_descriptions = &[_]sdl.gpu.VertexBufferDescription{vertex_buffer_desc},
-                .vertex_attributes = &vertex_attributes,
-            },
-            .rasterizer_state = .{
-                .cull_mode = .back,
-                .front_face = .counter_clockwise,
-            },
-            .target_info = .{
-                .color_target_descriptions = &[_]sdl.gpu.ColorTargetDescription{color_target_desc},
-                .depth_stencil_format = .depth32_float,
-            },
-            .depth_stencil_state = .{
-                .enable_depth_test = true,
-                .enable_depth_write = true,
-                .compare = .less,
-                .enable_stencil_test = false,
-            },
-        });
-    }
-
-    /// Check if PBR rendering is available
-    pub fn hasPBR(self: *RenderManager) bool {
-        return self.pbr_pipeline != null;
+        if (self.default_normal_texture == null) {
+            self.default_normal_texture = try Texture.createColored(&mutable_device, 1, 1, .{ 128, 128, 255, 255 });
+            errdefer if (self.default_normal_texture) |t| t.deinit(&mutable_device);
+        }
+        if (self.default_mr_texture == null) {
+            self.default_mr_texture = try Texture.createColored(&mutable_device, 1, 1, .{ 0, 128, 0, 255 });
+            errdefer if (self.default_mr_texture) |t| t.deinit(&mutable_device);
+        }
+        if (self.default_ao_texture == null) {
+            self.default_ao_texture = try Texture.createColored(&mutable_device, 1, 1, .{ 255, 255, 255, 255 });
+            errdefer if (self.default_ao_texture) |t| t.deinit(&mutable_device);
+        }
+        if (self.default_emissive_texture == null) {
+            self.default_emissive_texture = try Texture.createColored(&mutable_device, 1, 1, .{ 0, 0, 0, 255 });
+            errdefer if (self.default_emissive_texture) |t| t.deinit(&mutable_device);
+        }
     }
 
     /// Initialize Image-Based Lighting support
@@ -638,10 +435,7 @@ pub const RenderManager = struct {
     pub fn initForwardPlusWithConfig(self: *RenderManager, config: ForwardPlusConfig, use_gpu_compute: bool) !void {
         if (self.forward_plus_manager != null) return;
 
-        // Ensure PBR is initialized first (Forward+ extends PBR)
-        if (self.pbr_pipeline == null) {
-            try self.initPBR();
-        }
+        try self.initMaterialDefaults();
 
         var mutable_device = self.device;
 
@@ -743,19 +537,11 @@ pub const RenderManager = struct {
         });
 
         self.forward_plus_manager = fp;
-        self.forward_plus_enabled = true;
     }
 
     /// Check if Forward+ rendering is available
     pub fn hasForwardPlus(self: *RenderManager) bool {
-        return self.forward_plus_manager != null and self.forward_plus_enabled;
-    }
-
-    /// Enable/disable Forward+ rendering (falls back to standard PBR when disabled)
-    pub fn setForwardPlusEnabled(self: *RenderManager, enabled: bool) void {
-        if (self.forward_plus_manager != null) {
-            self.forward_plus_enabled = enabled;
-        }
+        return self.forward_plus_manager != null and self.forward_plus_pipeline != null;
     }
 
     /// Get the Forward+ manager for adding lights
@@ -853,27 +639,6 @@ pub const RenderFrame = struct {
         try self.cmd.submit();
     }
 
-    /// Bind the default pipeline
-    pub fn bindPipeline(self: *RenderFrame) void {
-        self.pass.bindGraphicsPipeline(self.manager.pipeline);
-    }
-
-    /// Bind default texture and sampler
-    pub fn bindDefaultTexture(self: *RenderFrame) void {
-        self.pass.bindFragmentSamplers(0, &[_]sdl.gpu.TextureSamplerBinding{.{
-            .texture = self.manager.white_texture.gpu_texture,
-            .sampler = self.manager.sampler,
-        }});
-    }
-
-    /// Bind a specific texture
-    pub fn bindTexture(self: *RenderFrame, texture: Texture) void {
-        self.pass.bindFragmentSamplers(0, &[_]sdl.gpu.TextureSamplerBinding{.{
-            .texture = texture.gpu_texture,
-            .sampler = self.manager.sampler,
-        }});
-    }
-
     /// Push uniforms for rendering
     pub fn pushUniforms(self: *RenderFrame, uniforms: Uniforms) void {
         self.cmd.pushVertexUniformData(0, std.mem.asBytes(&uniforms));
@@ -890,17 +655,8 @@ pub const RenderFrame = struct {
     }
 
     // ========================================================================
-    // PBR Rendering Methods
+    // Material/IBL Methods
     // ========================================================================
-
-    /// Bind the PBR pipeline. Returns false if PBR is not initialized.
-    pub fn bindPBRPipeline(self: *RenderFrame) bool {
-        if (self.manager.pbr_pipeline) |pbr| {
-            self.pass.bindGraphicsPipeline(pbr);
-            return true;
-        }
-        return false;
-    }
 
     /// Draw the skybox if available
     pub fn drawSkybox(self: *RenderFrame, view: Mat4, projection: Mat4) void {
@@ -931,14 +687,9 @@ pub const RenderFrame = struct {
         self.drawMesh(mesh);
     }
 
-    /// Push material uniforms for PBR rendering
+    /// Push material uniforms for Forward+ shading
     pub fn pushMaterialUniforms(self: *RenderFrame, material_uniforms: MaterialUniforms) void {
         self.cmd.pushFragmentUniformData(0, std.mem.asBytes(&material_uniforms));
-    }
-
-    /// Push light uniforms for PBR rendering
-    pub fn pushLightUniforms(self: *RenderFrame, light_uniforms: LightUniforms) void {
-        self.cmd.pushFragmentUniformData(1, std.mem.asBytes(&light_uniforms));
     }
 
     /// Bind PBR textures for a material
@@ -1029,22 +780,6 @@ pub const RenderFrame = struct {
             .{ .texture = prefiltered_tex, .sampler = mgr.sampler },
             .{ .texture = brdf_lut_tex, .sampler = mgr.sampler },
         });
-    }
-
-    /// Draw a mesh with PBR material
-    pub fn drawMeshPBR(self: *RenderFrame, mesh: Mesh, material: Material, model_matrix: Mat4, view: Mat4, projection: Mat4) void {
-        const uniforms = Uniforms.init(model_matrix, view, projection);
-        self.pushUniforms(uniforms);
-
-        const mat_uniforms = MaterialUniforms.fromMaterial(material);
-        self.pushMaterialUniforms(mat_uniforms);
-
-        self.pushLightUniforms(self.manager.light_uniforms);
-
-        self.bindPBRTextures(material);
-        self.bindIBLTextures();
-
-        self.drawMesh(mesh);
     }
 
     // ========================================================================

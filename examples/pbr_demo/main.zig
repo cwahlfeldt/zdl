@@ -39,8 +39,8 @@ pub fn main() !void {
     defer eng.deinit();
 
     // Initialize PBR rendering
-    try eng.initPBR();
-    std.debug.print("PBR rendering initialized: {}\n", .{eng.hasPBR()});
+    try eng.initForwardPlus();
+    std.debug.print("Forward+ rendering initialized: {}\n", .{eng.hasForwardPlus()});
 
     // Initialize IBL (Image-Based Lighting)
     std.debug.print("Generating BRDF LUT...\n", .{});

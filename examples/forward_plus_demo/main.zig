@@ -4,7 +4,6 @@ const Engine = engine.Engine;
 const Scene = engine.Scene;
 const Entity = engine.Entity;
 const Input = engine.Input;
-const Scancode = engine.Scancode;
 const Vec3 = engine.Vec3;
 const TransformComponent = engine.TransformComponent;
 const CameraComponent = engine.CameraComponent;
@@ -21,8 +20,6 @@ var sphere_mesh: Mesh = undefined;
 var cube_mesh: Mesh = undefined;
 var plane_mesh: Mesh = undefined;
 var time: f32 = 0;
-var forward_plus_enabled: bool = true;
-var show_debug_info: bool = true;
 
 // Light entities for animation
 // Forward+ with GPU compute enables hundreds of dynamic lights!
@@ -45,8 +42,7 @@ pub fn main() !void {
     });
     defer eng.deinit();
 
-    // Initialize PBR + IBL (skybox/environment) like helmet_showcase.
-    try eng.initPBR();
+    // Initialize IBL (skybox/environment) like helmet_showcase.
     try eng.initIBL();
 
     const hdr_rel_path = "assets/textures/kloppenheim_06_1k.hdr";
@@ -60,7 +56,6 @@ pub fn main() !void {
     // Initialize Forward+ with GPU compute culling
     // This uses a compute shader for light culling, enabling hundreds of dynamic lights
     try eng.initForwardPlusGPU();
-    forward_plus_enabled = true;
     std.debug.print("Forward+ with GPU compute initialized\n", .{});
 
     // Set up ambient lighting
@@ -230,7 +225,6 @@ pub fn main() !void {
     std.debug.print("  WASD/Arrow Keys - Move camera\n", .{});
     std.debug.print("  Q/E - Move camera up/down\n", .{});
     std.debug.print("  Mouse - Look around (click to capture)\n", .{});
-    std.debug.print("  F - Toggle Forward+ on/off (compare performance)\n", .{});
     std.debug.print("  F3 - Toggle FPS counter\n", .{});
     std.debug.print("  ESC - Quit\n", .{});
     std.debug.print("\nForward+ Status: ENABLED\n", .{});
@@ -249,17 +243,6 @@ fn update(eng: *Engine, scene: *Scene, input: *Input, delta_time: f32) !void {
             if (controller.update(cam_transform, input, delta_time)) {
                 eng.setMouseCapture(true);
             }
-        }
-    }
-
-    // Toggle Forward+ info
-    if (input.isKeyJustPressed(Scancode.f)) {
-        forward_plus_enabled = !forward_plus_enabled;
-        eng.setForwardPlusEnabled(forward_plus_enabled);
-        if (forward_plus_enabled) {
-            std.debug.print("Forward+ GPU compute: ENABLED\n", .{});
-        } else {
-            std.debug.print("Forward+ GPU compute: DISABLED (using standard PBR)\n", .{});
         }
     }
 

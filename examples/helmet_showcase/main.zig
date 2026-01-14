@@ -36,7 +36,7 @@ pub fn main() !void {
     });
     defer eng.deinit();
 
-    try eng.initPBR();
+    try eng.initForwardPlus();
     try eng.initIBL();
 
     const hdr_rel_path = "assets/textures/kloppenheim_06_1k.hdr";

@@ -86,12 +86,11 @@ pub const Engine = struct {
     white_texture: @import("../resources/texture.zig").Texture,
     sampler: sdl.gpu.Sampler,
 
-    // Backwards compatibility: PBR textures
+    // Backwards compatibility: material default textures
     default_normal_texture: ?@import("../resources/texture.zig").Texture,
     default_mr_texture: ?@import("../resources/texture.zig").Texture,
     default_ao_texture: ?@import("../resources/texture.zig").Texture,
     default_emissive_texture: ?@import("../resources/texture.zig").Texture,
-    pbr_pipeline: ?sdl.gpu.GraphicsPipeline,
     skybox_pipeline: ?sdl.gpu.GraphicsPipeline,
     skybox_mesh: ?@import("../resources/mesh.zig").Mesh,
     brdf_lut: ?*@import("../ibl/brdf_lut.zig").BrdfLut,
@@ -151,7 +150,6 @@ pub const Engine = struct {
             .default_mr_texture = null,
             .default_ao_texture = null,
             .default_emissive_texture = null,
-            .pbr_pipeline = null,
             .skybox_pipeline = null,
             .skybox_mesh = null,
             .brdf_lut = null,
@@ -186,20 +184,11 @@ pub const Engine = struct {
         return self.script_system != null;
     }
 
-    /// Initialize the PBR rendering pipeline.
-    pub fn initPBR(self: *Engine) !void {
-        try self.render_manager.initPBR();
-        // Sync backwards compat fields
-        self.pbr_pipeline = self.render_manager.pbr_pipeline;
+    fn syncMaterialDefaults(self: *Engine) void {
         self.default_normal_texture = self.render_manager.default_normal_texture;
         self.default_mr_texture = self.render_manager.default_mr_texture;
         self.default_ao_texture = self.render_manager.default_ao_texture;
         self.default_emissive_texture = self.render_manager.default_emissive_texture;
-    }
-
-    /// Check if PBR rendering is available.
-    pub fn hasPBR(self: *Engine) bool {
-        return self.render_manager.hasPBR();
     }
 
     /// Initialize Image-Based Lighting support.
@@ -237,6 +226,7 @@ pub const Engine = struct {
     /// Uses CPU-based culling which is more compatible but less performant.
     pub fn initForwardPlus(self: *Engine) !void {
         try self.render_manager.initForwardPlus();
+        self.syncMaterialDefaults();
     }
 
     /// Initialize Forward+ with GPU compute culling.
@@ -244,17 +234,12 @@ pub const Engine = struct {
     /// but requires proper driver support for compute shaders.
     pub fn initForwardPlusGPU(self: *Engine) !void {
         try self.render_manager.initForwardPlusGPU();
+        self.syncMaterialDefaults();
     }
 
     /// Check if Forward+ rendering is available.
     pub fn hasForwardPlus(self: *Engine) bool {
         return self.render_manager.hasForwardPlus();
-    }
-
-    /// Enable or disable Forward+ rendering.
-    /// When disabled, falls back to standard PBR rendering.
-    pub fn setForwardPlusEnabled(self: *Engine, enabled: bool) void {
-        self.render_manager.setForwardPlusEnabled(enabled);
     }
 
     pub fn deinit(self: *Engine) void {
