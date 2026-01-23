@@ -417,18 +417,21 @@ pub const ForwardPlusManager = struct {
     }
 
     /// Update view/projection matrices
-    pub fn setViewProjection(self: *Self, view: Mat4, projection: Mat4, width: u32, height: u32) void {
+    pub fn setViewProjection(self: *Self, view: Mat4, projection: Mat4, width: u32, height: u32, near: f32, far: f32) void {
         // Check if view changed significantly
         const view_changed = !std.mem.eql(f32, &self.current_view.data, &view.data);
         const proj_changed = !std.mem.eql(f32, &self.current_proj.data, &projection.data);
         const size_changed = self.screen_width != width or self.screen_height != height;
+        const range_changed = self.config.near_plane != near or self.config.far_plane != far;
 
-        if (view_changed or proj_changed or size_changed) {
+        if (view_changed or proj_changed or size_changed or range_changed) {
             self.aabbs_dirty = true;
             self.current_view = view;
             self.current_proj = projection;
             self.screen_width = width;
             self.screen_height = height;
+            self.config.near_plane = near;
+            self.config.far_plane = far;
         }
     }
 
@@ -537,11 +540,22 @@ pub const ForwardPlusManager = struct {
     /// In GPU mode, a compute shader performs the culling.
     pub fn cullLights(self: *Self, device: *sdl.gpu.Device, cmd: sdl.gpu.CommandBuffer) !void {
         if (!self.initialized) return;
-        if (self.point_lights.items.len == 0 and self.spot_lights.items.len == 0) return;
 
-        // Compute cluster AABBs if needed (always done on CPU)
+        // Always compute cluster AABBs (needed even with zero lights)
         self.computeClusterAABBs();
 
+        // Handle zero-lights case explicitly
+        if (self.point_lights.items.len == 0 and self.spot_lights.items.len == 0) {
+            // Initialize empty light grid
+            if (self.cpu_mode) {
+                try self.uploadEmptyLightDataCPU(device, cmd);
+            } else {
+                try self.uploadEmptyLightDataGPU(device, cmd);
+            }
+            return;
+        }
+
+        // Normal culling path
         if (self.cpu_mode) {
             // CPU-based light culling
             try self.cullLightsCPU(device, cmd);
@@ -871,6 +885,73 @@ pub const ForwardPlusManager = struct {
         radius = @min(radius, range * 2.0);
 
         return self.sphereAABBIntersect(center, radius, aabb_min, aabb_max);
+    }
+
+    /// Upload empty light data in CPU mode (for scenes with no lights)
+    fn uploadEmptyLightDataCPU(self: *Self, device: *sdl.gpu.Device, cmd: sdl.gpu.CommandBuffer) !void {
+        // Clear all clusters to zero
+        for (self.cpu_light_grid) |*grid| {
+            grid.* = .{ .offset = 0, .count = 0 };
+        }
+
+        const copy_pass = cmd.beginCopyPass();
+
+        // Upload empty grid
+        const grid_size = self.cpu_light_grid.len * @sizeOf(LightGrid);
+        const grid_transfer = try device.createTransferBuffer(.{
+            .size = @intCast(grid_size),
+            .usage = .upload,
+        });
+        defer device.releaseTransferBuffer(grid_transfer);
+
+        const grid_ptr: [*]LightGrid = @ptrCast(@alignCast(try device.mapTransferBuffer(grid_transfer, true)));
+        @memcpy(grid_ptr[0..self.cpu_light_grid.len], self.cpu_light_grid);
+        device.unmapTransferBuffer(grid_transfer);
+
+        copy_pass.uploadToBuffer(.{
+            .transfer_buffer = grid_transfer,
+            .offset = 0,
+        }, .{
+            .buffer = self.light_grid_buffer.?,
+            .offset = 0,
+            .size = @intCast(grid_size),
+        }, false);
+
+        copy_pass.end();
+    }
+
+    /// Upload empty light data in GPU mode (dispatches compute with zero lights)
+    fn uploadEmptyLightDataGPU(self: *Self, _: *sdl.gpu.Device, cmd: sdl.gpu.CommandBuffer) !void {
+        // Dispatch compute shader with zero lights - it will clear the grid
+        const compute_pass = cmd.beginComputePass(
+            &[_]sdl.gpu.StorageTextureReadWriteBinding{},
+            &[_]sdl.gpu.StorageBufferReadWriteBinding{
+                .{ .buffer = self.light_grid_buffer.?, .cycle = false },
+                .{ .buffer = self.light_index_buffer.?, .cycle = false },
+            },
+        );
+
+        compute_pass.bindPipeline(self.light_cull_pipeline.?);
+        compute_pass.bindStorageBuffers(0, &[_]sdl.gpu.Buffer{
+            self.cluster_aabb_buffer.?,
+            self.point_light_buffer.?,
+            self.spot_light_buffer.?,
+        });
+
+        const inv_proj = self.current_proj.inverse() orelse Mat4.identity();
+        const uniforms = ClusterUniforms.init(
+            self.current_view,
+            inv_proj,
+            @floatFromInt(self.screen_width),
+            @floatFromInt(self.screen_height),
+            self.config,
+            0, // Zero point lights
+            0, // Zero spot lights
+        );
+        cmd.pushComputeUniformData(0, std.mem.asBytes(&uniforms));
+
+        compute_pass.dispatch(1, 1, self.config.cluster_count_z);
+        compute_pass.end();
     }
 
     /// Get the light grid buffer for binding in fragment shader

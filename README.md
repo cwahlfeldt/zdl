@@ -15,12 +15,15 @@ zig build run-scene
 ## Features
 
 - **Entity Component System** - Scene graph with entities, components, and parent-child hierarchies
+- **Forward+ Rendering** - Clustered light culling for efficient many-light scenes
+- **PBR Materials** - Physically-Based Rendering with metallic-roughness workflow
+- **Cascaded Shadow Maps** - 3-cascade CSM with PCF filtering for dynamic shadows
 - **3D Graphics Pipeline** - Perspective projection, depth testing, backface culling
 - **Mesh System** - Vertex3D format with normals, UVs, colors; GPU buffer upload
 - **Primitives** - Built-in cube, plane, quad, sphere generators
 - **Transform System** - Position, rotation (quaternion), scale with TRS matrix
 - **3D Camera** - Perspective projection, view matrix, movement controls
-- **Input System** - Keyboard state tracking
+- **Input System** - Keyboard and gamepad support with haptic feedback
 - **Audio System** - WAV loading and playback
 - **Math Library** - Vec2, Vec3, Vec4, Mat4, Quat
 

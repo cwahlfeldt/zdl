@@ -30,6 +30,11 @@ layout (set = 2, binding = 5) uniform samplerCube u_irradiance_map;
 layout (set = 2, binding = 6) uniform samplerCube u_prefiltered_env;
 layout (set = 2, binding = 7) uniform sampler2D u_brdf_lut;
 
+// Shadow textures (one per cascade)
+layout (set = 2, binding = 8) uniform sampler2DShadow u_shadow_map0;
+layout (set = 2, binding = 9) uniform sampler2DShadow u_shadow_map1;
+layout (set = 2, binding = 10) uniform sampler2DShadow u_shadow_map2;
+
 // Material uniforms (fragment uniform buffer 0)
 layout (set = 3, binding = 0, std140) uniform MaterialUBO {
     vec4 base_color;
@@ -60,7 +65,7 @@ struct LightGrid {
     uint count;
 };
 
-// Forward+ uniforms
+// Forward+ uniforms (now includes shadow data to stay within SDL3's 4-buffer limit)
 layout (set = 3, binding = 1, std140) uniform ForwardPlusUBO {
     vec4 directional_direction;
     vec4 directional_color_intensity;
@@ -80,6 +85,14 @@ layout (set = 3, binding = 1, std140) uniform ForwardPlusUBO {
     float log_depth_scale;      // Precomputed: 1.0 / log(far/near)
 
     mat4 view_matrix;
+
+    // Shadow data merged to stay within SDL3's 4-buffer limit
+    mat4 cascade_view_proj[3];
+    vec4 cascade_splits;         // xyz = split distances, w = unused
+    float shadow_distance;
+    float depth_bias;
+    float normal_offset_bias;
+    uint cascade_count;
 } forward_plus;
 
 // Storage buffers for clustered lights
@@ -170,6 +183,84 @@ vec3 calculatePBRLight(vec3 L, vec3 radiance, vec3 N, vec3 V, vec3 albedo, float
 float calculateAttenuation(float distance, float range) {
     float attenuation = clamp(1.0 - pow(distance / range, 4.0), 0.0, 1.0);
     return attenuation * attenuation / (distance * distance + 1.0);
+}
+
+// ============================================================================
+// Shadow Functions
+// ============================================================================
+
+float sampleShadowMap(int cascade_idx, vec2 uv, float depth) {
+    if (cascade_idx == 0) {
+        return texture(u_shadow_map0, vec3(uv, depth));
+    }
+    if (cascade_idx == 1) {
+        return texture(u_shadow_map1, vec3(uv, depth));
+    }
+    return texture(u_shadow_map2, vec3(uv, depth));
+}
+
+// Calculate shadow factor with PCF filtering (shadow data now in forward_plus)
+float calculateShadow(vec3 world_pos, vec3 normal) {
+    if (forward_plus.cascade_count == 0) {
+        return 1.0; // Shadows disabled
+    }
+
+    // Transform to view space to get depth
+    vec4 view_pos = forward_plus.view_matrix * vec4(world_pos, 1.0);
+    float view_depth = -view_pos.z;
+
+    // Check if beyond shadow distance
+    if (view_depth > forward_plus.shadow_distance) {
+        return 1.0;
+    }
+
+    // Select cascade based on view depth
+    int cascade_idx = 0;
+    if (view_depth > forward_plus.cascade_splits.y) {
+        cascade_idx = 1;
+        if (view_depth > forward_plus.cascade_splits.z) {
+            cascade_idx = 2;
+        }
+    }
+
+    // Apply normal offset bias to reduce shadow acne
+    vec3 light_dir = normalize(-forward_plus.directional_direction.xyz);
+    float normal_bias = forward_plus.normal_offset_bias * (1.0 - dot(normal, light_dir));
+    vec3 biased_pos = world_pos + normal * normal_bias;
+
+    // Transform to light space for selected cascade
+    vec4 light_space_pos = forward_plus.cascade_view_proj[cascade_idx] * vec4(biased_pos, 1.0);
+    vec3 proj_coords = light_space_pos.xyz / light_space_pos.w;
+
+    // Convert to [0,1] range for texture lookup
+    proj_coords.xy = proj_coords.xy * 0.5 + 0.5;
+
+    // Check if position is outside shadow map bounds
+    if (proj_coords.x < 0.0 || proj_coords.x > 1.0 ||
+        proj_coords.y < 0.0 || proj_coords.y > 1.0 ||
+        proj_coords.z < 0.0 || proj_coords.z > 1.0) {
+        return 1.0; // Outside shadow map, fully lit
+    }
+
+    // Apply depth bias
+    float current_depth = proj_coords.z - forward_plus.depth_bias;
+
+    // 3x3 PCF (Percentage Closer Filtering) for soft shadows
+    float shadow = 0.0;
+    vec2 texel_size = vec2(1.0 / 2048.0); // Adjust based on shadow map size
+    if (cascade_idx > 0) {
+        texel_size = vec2(1.0 / 1024.0);
+    }
+
+    for (int x = -1; x <= 1; x++) {
+        for (int y = -1; y <= 1; y++) {
+            vec2 offset = vec2(x, y) * texel_size;
+            shadow += sampleShadowMap(cascade_idx, proj_coords.xy + offset, current_depth);
+        }
+    }
+    shadow /= 9.0;
+
+    return shadow;
 }
 
 // ============================================================================
@@ -286,6 +377,11 @@ void main() {
     {
         vec3 L = normalize(-forward_plus.directional_direction.xyz);
         vec3 radiance = forward_plus.directional_color_intensity.rgb * forward_plus.directional_color_intensity.a;
+
+        // Apply shadow factor
+        float shadow = calculateShadow(v_world_pos, N);
+        radiance *= shadow;
+
         Lo += calculatePBRLight(L, radiance, N, V, albedo, metallic, roughness, F0);
     }
 

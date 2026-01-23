@@ -386,6 +386,28 @@ pub fn build(b: *std.Build) void {
     const run_forward_plus_step = b.step("run-forward-plus", "Run Forward+ Clustered Rendering Demo");
     run_forward_plus_step.dependOn(&run_forward_plus_demo.step);
 
+    // Build Shadow Demo example
+    const shadow_demo = b.addExecutable(.{
+        .name = "shadow_demo",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("examples/shadow_demo/main.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    shadow_demo.root_module.addImport("sdl3", sdl3.module("sdl3"));
+    shadow_demo.root_module.addImport("engine", engine_module);
+    b.installArtifact(shadow_demo);
+
+    // Shadow Demo run step
+    const run_shadow_demo = b.addRunArtifact(shadow_demo);
+    run_shadow_demo.step.dependOn(b.getInstallStep());
+    if (b.args) |args| {
+        run_shadow_demo.addArgs(args);
+    }
+    const run_shadow_step = b.step("run-shadow", "Run Cascaded Shadow Maps Demo");
+    run_shadow_step.dependOn(&run_shadow_demo.step);
+
     // Note: Shader compilation is handled by the asset pipeline tool (zdl-assets)
     // Run: zig build assets -- build --source=src/shaders --output=src/shaders
     // Or:  ./zig-out/bin/zdl-assets build --source=assets --output=build/assets

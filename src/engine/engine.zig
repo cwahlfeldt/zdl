@@ -121,6 +121,22 @@ pub const Engine = struct {
         errdefer render_manager.deinit();
         render_manager.setClearColor(config.clear_color);
 
+        // Initialize Forward+ rendering by default
+        // Try GPU compute first, fall back to CPU if unavailable
+        render_manager.initForwardPlusGPU() catch |err| {
+            std.debug.print("Forward+ GPU init failed ({}), falling back to CPU mode\n", .{err});
+            render_manager.initForwardPlus() catch |cpu_err| {
+                std.debug.print("Forward+ CPU init also failed: {}\n", .{cpu_err});
+                return cpu_err;
+            };
+        };
+
+        // Initialize shadow mapping (optional feature)
+        render_manager.initShadows() catch |err| {
+            std.debug.print("Shadow mapping init failed: {}, shadows disabled\n", .{err});
+            // Shadows are optional, continue without them
+        };
+
         // Initialize input
         var input = Input.init(allocator);
         errdefer input.deinit();
@@ -240,6 +256,16 @@ pub const Engine = struct {
     /// Check if Forward+ rendering is available.
     pub fn hasForwardPlus(self: *Engine) bool {
         return self.render_manager.hasForwardPlus();
+    }
+
+    /// Check if shadows are available
+    pub fn hasShadows(self: *Engine) bool {
+        return self.render_manager.hasShadows();
+    }
+
+    /// Enable/disable shadows at runtime
+    pub fn setShadowsEnabled(self: *Engine, enabled: bool) void {
+        self.render_manager.shadows_enabled = enabled;
     }
 
     pub fn deinit(self: *Engine) void {

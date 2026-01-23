@@ -22,6 +22,11 @@ const ForwardPlusConfig = forward_plus.ForwardPlusConfig;
 const BrdfLut = @import("../ibl/brdf_lut.zig").BrdfLut;
 const EnvironmentMap = @import("../ibl/environment_map.zig").EnvironmentMap;
 
+// Shadow imports
+const shadow_manager = @import("shadow_manager.zig");
+const ShadowManager = shadow_manager.ShadowManager;
+const ShadowConfig = shadow_manager.ShadowConfig;
+
 // Platform-specific shader configuration
 const is_macos = builtin.os.tag == .macos;
 
@@ -106,6 +111,10 @@ pub const RenderManager = struct {
     forward_plus_manager: ?*ForwardPlusManager,
     forward_plus_pipeline: ?sdl.gpu.GraphicsPipeline,
 
+    // Shadow system
+    shadow_manager: ?*ShadowManager,
+    shadows_enabled: bool,
+
     // Light uniforms (shared state for rendering)
     light_uniforms: LightUniforms,
 
@@ -170,6 +179,8 @@ pub const RenderManager = struct {
             .ibl_enabled = false,
             .forward_plus_manager = null,
             .forward_plus_pipeline = null,
+            .shadow_manager = null,
+            .shadows_enabled = false,
             .light_uniforms = LightUniforms.default(),
             .window_width = width,
             .window_height = height,
@@ -217,6 +228,12 @@ pub const RenderManager = struct {
         if (self.forward_plus_manager) |fp| {
             fp.deinit(&mutable_device);
             self.allocator.destroy(fp);
+        }
+
+        // Clean up shadow resources
+        if (self.shadow_manager) |sm| {
+            sm.deinit(&mutable_device);
+            self.allocator.destroy(sm);
         }
 
         if (self.depth_texture) |dt| self.device.releaseTexture(dt);
@@ -487,10 +504,10 @@ pub const RenderManager = struct {
             .entry_point = ForwardPlusShaderConfig.fragment_entry,
             .format = ForwardPlusShaderConfig.format,
             .stage = .fragment,
-            .num_samplers = 8,
-            .num_storage_buffers = 4, // light_grid, light_indices, point_lights, spot_lights
+            .num_samplers = 11, // bindings 0-10 (PBR + IBL + 3 shadow maps)
+            .num_storage_buffers = 4, // light_grid(3), light_indices(4), point_lights(5), spot_lights(6)
             .num_storage_textures = 0,
-            .num_uniform_buffers = 2,
+            .num_uniform_buffers = 2, // material(0), forward_plus(1) - shadow data merged into forward_plus
         });
         defer self.device.releaseShader(fp_fragment_shader);
 
@@ -547,6 +564,36 @@ pub const RenderManager = struct {
     /// Get the Forward+ manager for adding lights
     pub fn getForwardPlusManager(self: *RenderManager) ?*ForwardPlusManager {
         return self.forward_plus_manager;
+    }
+
+    /// Initialize shadow mapping system
+    pub fn initShadows(self: *RenderManager) !void {
+        if (self.shadow_manager != null) return;
+
+        const shadow_mgr = try self.allocator.create(ShadowManager);
+        shadow_mgr.* = ShadowManager.init(self.allocator, .{
+            .cascade_count = 3,
+            .shadow_distance = 100.0,
+            .cascade_splits = .{ 0.0, 0.1, 0.3, 1.0 },
+            .cascade_map_sizes = .{ 2048, 1024, 1024 },
+            .depth_bias = 0.005,
+            .normal_offset_bias = 0.02,
+        });
+
+        var mutable_device = self.device;
+        try shadow_mgr.initGPU(self.allocator, &mutable_device);
+        self.shadow_manager = shadow_mgr;
+        self.shadows_enabled = true;
+    }
+
+    /// Check if shadows are available
+    pub fn hasShadows(self: *RenderManager) bool {
+        return self.shadow_manager != null and self.shadows_enabled;
+    }
+
+    /// Get shadow manager
+    pub fn getShadowManager(self: *RenderManager) ?*ShadowManager {
+        return self.shadow_manager;
     }
 
     /// Set the clear color for rendering
@@ -819,7 +866,7 @@ pub const RenderFrame = struct {
 
         const config = fp.getConfig();
 
-        // Build ForwardPlusUniforms structure
+        // Build ForwardPlusUniforms structure (now includes shadow data to stay within SDL3's 4-buffer limit)
         const ForwardPlusUniforms = extern struct {
             directional_direction: [4]f32,
             directional_color_intensity: [4]f32,
@@ -838,9 +885,30 @@ pub const RenderFrame = struct {
             log_depth_scale: f32,
 
             view_matrix: [16]f32,
+
+            // Shadow uniforms (merged to avoid SDL3 buffer limit)
+            cascade_view_proj: [3][16]f32,
+            cascade_splits: [4]f32,
+            shadow_distance: f32,
+            depth_bias: f32,
+            normal_offset_bias: f32,
+            cascade_count: u32,
         };
 
         const log_depth_scale = 1.0 / @log(config.far_plane / config.near_plane);
+
+        // Get shadow data if available
+        const shadow_data = if (mgr.getShadowManager()) |shadow_mgr|
+            shadow_mgr.getShadowUniforms()
+        else
+            shadow_manager.ShadowUniforms{
+                .cascade_view_proj = [_][16]f32{[_]f32{0} ** 16} ** 3,
+                .cascade_splits = [_]f32{0} ** 4,
+                .shadow_distance = 0,
+                .depth_bias = 0,
+                .normal_offset_bias = 0,
+                .cascade_count = 0,
+            };
 
         const uniforms = ForwardPlusUniforms{
             .directional_direction = mgr.light_uniforms.directional_direction,
@@ -857,9 +925,40 @@ pub const RenderFrame = struct {
             .far_plane = config.far_plane,
             .log_depth_scale = log_depth_scale,
             .view_matrix = view.data,
+            // Shadow data merged into same buffer
+            .cascade_view_proj = shadow_data.cascade_view_proj,
+            .cascade_splits = shadow_data.cascade_splits,
+            .shadow_distance = shadow_data.shadow_distance,
+            .depth_bias = shadow_data.depth_bias,
+            .normal_offset_bias = shadow_data.normal_offset_bias,
+            .cascade_count = shadow_data.cascade_count,
         };
 
         self.cmd.pushFragmentUniformData(1, std.mem.asBytes(&uniforms));
+    }
+
+    /// Bind shadow resources (if shadows are enabled)
+    pub fn bindShadowResources(self: *RenderFrame) void {
+        const mgr = self.manager;
+        const shadow_mgr = mgr.getShadowManager() orelse return;
+
+        // Note: Shadow uniform data is now merged into ForwardPlusUniforms to stay within
+        // SDL3's 4-buffer limit. This function only binds shadow map textures.
+
+        // Bind shadow maps with sampler (three separate textures for cascades).
+        const shadow_maps = shadow_mgr.getShadowMaps();
+        const shadow_sampler = shadow_mgr.getShadowSampler() orelse return;
+        if (shadow_maps[0]) |map0| {
+            if (shadow_maps[1]) |map1| {
+                if (shadow_maps[2]) |map2| {
+                    self.pass.bindFragmentSamplers(8, &[_]sdl.gpu.TextureSamplerBinding{
+                        .{ .texture = map0, .sampler = shadow_sampler },
+                        .{ .texture = map1, .sampler = shadow_sampler },
+                        .{ .texture = map2, .sampler = shadow_sampler },
+                    });
+                }
+            }
+        }
     }
 
     /// Draw a mesh with Forward+ clustered lighting

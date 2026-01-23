@@ -74,6 +74,14 @@ struct ForwardPlusUniforms {
     float log_depth_scale;
 
     float4x4 view_matrix;
+
+    // Shadow data merged to stay within SDL3's 4-buffer limit
+    float4x4 cascade_view_proj[3];
+    float4 cascade_splits;  // [near, split1, split2, far]
+    float shadow_distance;
+    float depth_bias;
+    float normal_offset_bias;
+    uint cascade_count;
 };
 
 // ============================================================================
@@ -197,6 +205,101 @@ uint getClusterIndex(float3 frag_pos, float4 frag_coord, constant ForwardPlusUni
 }
 
 // ============================================================================
+// Shadow Functions
+// ============================================================================
+
+float sampleShadowDepth(
+    uint cascade_idx,
+    float2 uv,
+    depth2d<float> shadow_map0,
+    depth2d<float> shadow_map1,
+    depth2d<float> shadow_map2,
+    sampler shadow_sampler
+) {
+    if (cascade_idx == 0) {
+        return shadow_map0.sample(shadow_sampler, uv);
+    }
+    if (cascade_idx == 1) {
+        return shadow_map1.sample(shadow_sampler, uv);
+    }
+    return shadow_map2.sample(shadow_sampler, uv);
+}
+
+float calculateShadow(
+    float3 world_pos,
+    float3 world_normal,
+    float view_depth,
+    constant ForwardPlusUniforms& forward_plus,  // Shadow data now in forward_plus
+    depth2d<float> shadow_map0,
+    depth2d<float> shadow_map1,
+    depth2d<float> shadow_map2,
+    sampler shadow_sampler
+) {
+    // If no shadows, return full light
+    if (forward_plus.cascade_count == 0) {
+        return 1.0;
+    }
+
+    // If beyond shadow distance, no shadow
+    if (view_depth > forward_plus.shadow_distance) {
+        return 1.0;
+    }
+
+    // Select cascade based on view depth
+    uint cascade_idx = 0;
+    for (uint i = 0; i < forward_plus.cascade_count - 1; i++) {
+        if (view_depth > forward_plus.cascade_splits[i + 1]) {
+            cascade_idx = i + 1;
+        }
+    }
+
+    // Transform to light space
+    float4x4 light_vp = forward_plus.cascade_view_proj[cascade_idx];
+
+    // Apply normal offset bias to reduce shadow acne
+    float3 offset_pos = world_pos + world_normal * forward_plus.normal_offset_bias;
+    float4 light_space = light_vp * float4(offset_pos, 1.0);
+    float3 proj_coords = light_space.xyz / light_space.w;
+
+    // Convert to texture coordinates [0,1]
+    proj_coords.xy = proj_coords.xy * 0.5 + 0.5;
+    proj_coords.y = 1.0 - proj_coords.y;  // Flip Y for Metal
+
+    // Out of shadow map bounds = no shadow
+    if (proj_coords.x < 0.0 || proj_coords.x > 1.0 ||
+        proj_coords.y < 0.0 || proj_coords.y > 1.0 ||
+        proj_coords.z < 0.0 || proj_coords.z > 1.0) {
+        return 1.0;
+    }
+
+    // Apply depth bias
+    float current_depth = proj_coords.z - forward_plus.depth_bias;
+
+    // PCF (Percentage Closer Filtering) 3x3
+    float shadow = 0.0;
+    float2 texel_size = 1.0 / float2(2048.0);  // Use cascade 0 size
+
+    for (int x = -1; x <= 1; x++) {
+        for (int y = -1; y <= 1; y++) {
+            float2 offset = float2(float(x), float(y)) * texel_size;
+            float2 sample_coord = proj_coords.xy + offset;
+
+            float closest_depth = sampleShadowDepth(
+                cascade_idx,
+                sample_coord,
+                shadow_map0,
+                shadow_map1,
+                shadow_map2,
+                shadow_sampler
+            );
+            shadow += (current_depth <= closest_depth) ? 1.0 : 0.0;
+        }
+    }
+
+    return shadow / 9.0;  // Average of 9 samples
+}
+
+// ============================================================================
 // Fragment Shader
 // ============================================================================
 
@@ -204,7 +307,7 @@ fragment float4 pbr_forward_plus_fragment_main(
     Vertex3DOutput in [[stage_in]],
 
     constant MaterialUniforms& material [[buffer(0)]],
-    constant ForwardPlusUniforms& forward_plus [[buffer(1)]],
+    constant ForwardPlusUniforms& forward_plus [[buffer(1)]],  // Now includes shadow data
 
     texture2d<float> base_color_tex [[texture(0)]],
     texture2d<float> normal_tex [[texture(1)]],
@@ -214,13 +317,17 @@ fragment float4 pbr_forward_plus_fragment_main(
     texturecube<float> irradiance_map [[texture(5)]],
     texturecube<float> prefiltered_env [[texture(6)]],
     texture2d<float> brdf_lut [[texture(7)]],
+    depth2d<float> shadow_map0 [[texture(8)]],
+    depth2d<float> shadow_map1 [[texture(9)]],
+    depth2d<float> shadow_map2 [[texture(10)]],
 
     sampler tex_sampler [[sampler(0)]],
+    sampler shadow_sampler [[sampler(2)]],
 
-    device const LightGrid* light_grid [[buffer(2)]],
-    device const uint* light_indices [[buffer(3)]],
-    device const PointLight* point_lights [[buffer(4)]],
-    device const SpotLight* spot_lights [[buffer(5)]]
+    device const LightGrid* light_grid [[buffer(3)]],
+    device const uint* light_indices [[buffer(4)]],
+    device const PointLight* point_lights [[buffer(5)]],
+    device const SpotLight* spot_lights [[buffer(6)]]
 ) {
     // UV with material transform
     float2 uv = in.uv * material.uv_transform.xy + material.uv_transform.zw;
@@ -292,14 +399,33 @@ fragment float4 pbr_forward_plus_fragment_main(
     float3 F0 = float3(0.04);
     F0 = mix(F0, albedo, metallic);
 
+    // Calculate shadow factor (shadow data now in forward_plus)
+    float shadow_factor = 1.0;
+    if (forward_plus.cascade_count > 0) {
+        float4 view_pos = forward_plus.view_matrix * float4(in.world_pos, 1.0);
+        float view_depth = -view_pos.z;
+        if (view_depth < forward_plus.shadow_distance) {
+            shadow_factor = calculateShadow(
+                in.world_pos,
+                N,
+                view_depth,
+                forward_plus,
+                shadow_map0,
+                shadow_map1,
+                shadow_map2,
+                shadow_sampler
+            );
+        }
+    }
+
     // Accumulate lighting
     float3 Lo = float3(0.0);
 
-    // Directional light
+    // Directional light (with shadows)
     {
         float3 L = normalize(-forward_plus.directional_direction.xyz);
         float3 radiance = forward_plus.directional_color_intensity.rgb * forward_plus.directional_color_intensity.a;
-        Lo += calculatePBRLight(L, radiance, N, V, albedo, metallic, roughness, F0);
+        Lo += calculatePBRLight(L, radiance, N, V, albedo, metallic, roughness, F0) * shadow_factor;
     }
 
     // Get cluster for this fragment
